@@ -5,40 +5,12 @@
   "version": "0.1.0",
   "author": "Eugene Ray / Senior Engineer",
   "license": "MIT",
-  "description": "Keyboard-driven player for the Slop Cannon feed (Rust + libmpv); built once into ~/.cache on first open.",
+  "description": "Keyboard-driven player for the Slop Cannon feed (Rust + libmpv). Keybind only, no bar widget; run scripts/install.sh once to build it.",
   "kinds": [
-    "service",
-    "bar-widget"
+    "service"
   ],
   "keepLoaded": true,
   "entryPoints": {
-    "service": "Service.qml",
-    "barWidget": "BarWidget.qml"
-  },
-  "barWidget": {
-    "displayName": "slopTV",
-    "description": "Optional bar icon; prefer Super+Shift+Ctrl+T.",
-    "category": "Media",
-    "aliases": [
-      "slop",
-      "sloptv",
-      "slop-tv",
-      "slop-cannon",
-      "video",
-      "mpv"
-    ],
-    "allowMultiple": false,
-    "defaultSection": "right",
-    "defaults": {
-      "showIcon": false
-    },
-    "schema": [
-      {
-        "key": "showIcon",
-        "type": "boolean",
-        "label": "Show bar icon (keybind works either way)",
-        "defaultValue": false
-      }
-    ]
+    "service": "Service.qml"
   }
 }

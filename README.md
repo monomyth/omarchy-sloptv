@@ -113,10 +113,10 @@ Optional: `packaging/slopTV.desktop` is a launcher entry for Walker (copy it to 
 ## Remove
 
 ```sh
-omarchy plugin remove io.github.monomyth.sloptv
+bash ~/.config/omarchy/plugins/io.github.monomyth.sloptv/scripts/uninstall.sh
 ```
 
-Then delete the bind block from `~/.config/hypr/bindings.lua`, and optionally `~/.cache/omarchy/sloptv/` and `~/.cache/slop-tv/`.
+`omarchy plugin remove` only deletes the plugin folder. `uninstall.sh` also removes the keybind block from `~/.config/hypr/bindings.lua` (backup saved next to it as `bindings.lua.sloptv.bak`), stops a running player, deletes the built binary and caches, and removes `~/.config/slop-tv/` (pass `--keep-config` to keep it). It finishes by running `omarchy plugin remove io.github.monomyth.sloptv --yes`.
 
 ## Development
 
@@ -130,7 +130,7 @@ cargo fmt --check && cargo clippy --all-targets && cargo test
 
 Built and tested on a Debian box (mpv 0.40, Xvfb, software GL): `cargo build --release`, unit tests, live feed fetch including a real 304, real mp4 and poster download from X, playback, grid, search, cards, help, failed-clip skipping, offline notice.
 
-Not verified: anything on Wayland or Hyprland (app-id, fullscreen, `hyprctl` focus and close in `open.sh`), the Omarchy plugin loader, Quickshell loading `Service.qml` and `BarWidget.qml`, the bind via `o.bind` and `install-bind.sh` against a real `omarchy menu keybindings --print`, hardware decoding, audio, `wl-copy` / `xdg-open`, yt-dlp playback of X page URLs, and the first-run build on Arch (needs mpv client API 2.x).
+Not verified: anything on Wayland or Hyprland (app-id, fullscreen, `hyprctl` focus and close in `open.sh`), the Omarchy plugin loader, Quickshell loading `Service.qml`, the bind via `o.bind` and `install-bind.sh` against a real `omarchy menu keybindings --print`, hardware decoding, audio, `wl-copy` / `xdg-open`, yt-dlp playback of X page URLs, and the first-run build on Arch (needs mpv client API 2.x).
 
 ## Credits
 
