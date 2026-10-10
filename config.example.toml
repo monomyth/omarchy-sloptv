@@ -1,5 +1,5 @@
 # ~/.config/slop-tv/config.toml  (all keys optional; these are the defaults)
-# Embed mode (default) uses only: source_url, fallback_url, shuffle, auto_advance, embed_default_secs. The rest below is for the hidden raw_mpv mode.
+# Embed mode (default) uses only: source_url, fallback_url, shuffle, auto_advance, embed_default_secs, start_fullscreen. The rest below is for the hidden raw_mpv mode.
 source_url   = "https://jon-slop.grok.me/videos.json"  # or a local path / file:// URL for development
 fallback_url = "https://jon-slop.grok.me"              # last resort: page with embedded <script id="data"> JSON; "" disables
 volume       = 60        # 0-130, applied at start (audio stays muted until the first keypress)
@@ -20,3 +20,4 @@ download_clips = false
 raw_mpv = false
 auto_advance       = true   # embed mode: move on by timer after the post's known duration (iframe events are not readable)
 embed_default_secs = 0      # embed mode: seconds to show a post with no known duration; 0 = wait for next
+start_fullscreen    = true   # embed mode: open the Chromium app window fullscreen (w toggles)

@@ -351,8 +351,8 @@ pub fn find_browser() -> Option<String> {
 }
 
 /// Chromium arguments for the app window (pure, for tests).
-pub fn browser_args(profile: &Path, launch_url: &str) -> Vec<String> {
-    vec![
+pub fn browser_args(profile: &Path, launch_url: &str, fullscreen: bool) -> Vec<String> {
+    let mut v = vec![
         format!("--user-data-dir={}", profile.display()),
         "--class=slop-tv".into(),
         "--no-first-run".into(),
@@ -361,7 +361,11 @@ pub fn browser_args(profile: &Path, launch_url: &str) -> Vec<String> {
         "--window-size=720,900".into(),
         "--new-window".into(),
         format!("--app={launch_url}"),
-    ]
+    ];
+    if fullscreen {
+        v.push("--start-fullscreen".into());
+    }
+    v
 }
 
 pub fn profile_dir() -> PathBuf {
@@ -370,7 +374,7 @@ pub fn profile_dir() -> PathBuf {
         .join("omarchy/sloptv/chromium-profile")
 }
 
-fn launch(url: &str, boot: &Path) -> Result<Option<Child>> {
+fn launch(url: &str, boot: &Path, fullscreen: bool) -> Result<Option<Child>> {
     // bootstrap file redirects to the local URL, so the token stays out of the browser's command line
     std::fs::write(
         boot,
@@ -381,7 +385,7 @@ fn launch(url: &str, boot: &Path) -> Result<Option<Child>> {
         let profile = profile_dir();
         std::fs::create_dir_all(&profile)?;
         let c = Command::new(b)
-            .args(browser_args(&profile, &boot_url))
+            .args(browser_args(&profile, &boot_url, fullscreen))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -399,6 +403,39 @@ fn launch(url: &str, boot: &Path) -> Result<Option<Child>> {
         .spawn()
         .map_err(|e| anyhow!("cannot open a browser: {e} (install chromium)"))?;
     Ok(None)
+}
+
+/// On Hyprland, make sure the app window really is fullscreen: --start-fullscreen is only a request
+/// and a compositor may ignore it. Polls briefly for the `slop-tv` window, then dispatches
+/// `fullscreen 0` once if it is not already fullscreen. Does nothing outside Hyprland.
+fn hyprland_fullscreen() {
+    if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_none() {
+        return;
+    }
+    std::thread::spawn(|| {
+        for _ in 0..40 {
+            std::thread::sleep(Duration::from_millis(500));
+            let Ok(out) = Command::new("hyprctl").args(["clients", "-j"]).output() else {
+                return;
+            };
+            let Ok(v) = serde_json::from_slice::<serde_json::Value>(&out.stdout) else {
+                continue;
+            };
+            let Some(w) = v
+                .as_array()
+                .and_then(|a| a.iter().find(|c| c["class"] == "slop-tv"))
+            else {
+                continue;
+            };
+            let fs = w["fullscreen"].as_i64().unwrap_or(0) > 0 || w["fullscreen"] == true;
+            if !fs {
+                let _ = Command::new("hyprctl")
+                    .args(["dispatch", "fullscreen", "0"])
+                    .output();
+            }
+            return;
+        }
+    });
 }
 
 pub fn run(cfg: Config, cache: Cache, reset_notice: bool) -> Result<()> {
@@ -427,7 +464,10 @@ pub fn run(cfg: Config, cache: Cache, reset_notice: bool) -> Result<()> {
         ctl.token
     );
     let boot = std::env::temp_dir().join(format!("slop-tv-launch-{}.html", std::process::id()));
-    let mut child = launch(&url, &boot)?;
+    let mut child = launch(&url, &boot, cfg.start_fullscreen)?;
+    if cfg.start_fullscreen {
+        hyprland_fullscreen();
+    }
     let ctl = Arc::new(Mutex::new(ctl));
     let quit = Arc::new(Mutex::new(false));
     let started = Instant::now();
@@ -518,10 +558,16 @@ mod tests {
     }
     #[test]
     fn browser_args_use_private_profile_and_class() {
-        let a = browser_args(Path::new("/p"), "file:///b.html");
+        let a = browser_args(Path::new("/p"), "file:///b.html", false);
         assert!(a.contains(&"--user-data-dir=/p".to_string()));
         assert!(a.contains(&"--class=slop-tv".to_string()));
         assert!(a.contains(&"--app=file:///b.html".to_string()));
+        assert!(!a.contains(&"--start-fullscreen".to_string()));
+        let f = browser_args(Path::new("/p"), "file:///b.html", true);
+        assert!(
+            f.contains(&"--start-fullscreen".to_string()),
+            "start_fullscreen=true adds the flag"
+        );
         assert!(profile_dir().ends_with("omarchy/sloptv/chromium-profile"));
     }
     #[test]
@@ -743,7 +789,7 @@ mod tests {
         assert_eq!(PAGE.matches("<iframe").count(), 1);
         assert!(PAGE.contains("$('f').src = s.embed"));
         // no browser flag that would block (or force) iframe fullscreen
-        let a = browser_args(Path::new("/p"), "file:///b.html").join(" ");
+        let a = browser_args(Path::new("/p"), "file:///b.html", false).join(" ");
         assert!(
             !a.contains("fullscreen") && !a.contains("disable-features") && !a.contains("kiosk")
         );

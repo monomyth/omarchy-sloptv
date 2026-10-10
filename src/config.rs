@@ -16,6 +16,8 @@ pub struct Config {
     pub fullscreen: bool,
     /// Embed mode: move to the next post by timer when the post's known duration has elapsed.
     pub auto_advance: bool,
+    /// Embed mode: open the Chromium app window fullscreen (`w` still toggles it).
+    pub start_fullscreen: bool,
     /// Embed mode: seconds to show a post whose duration is unknown (0 = stay until you press next).
     pub embed_default_secs: u64,
     pub cache_max_mb: u64,
@@ -41,6 +43,7 @@ impl Default for Config {
             shuffle: true,
             fullscreen: true,
             auto_advance: true,
+            start_fullscreen: true,
             embed_default_secs: 0,
             cache_max_mb: 2048,
             download_clips: false,
@@ -105,7 +108,15 @@ mod tests {
     #[test]
     fn defaults_and_partial() {
         let d = Config::default();
-        assert!(d.shuffle && d.auto_advance);
+        assert!(
+            d.shuffle && d.auto_advance && d.start_fullscreen,
+            "embed window starts fullscreen"
+        );
+        assert!(
+            !Config::parse("start_fullscreen = false")
+                .unwrap()
+                .start_fullscreen
+        );
         assert_eq!(d.embed_default_secs, 0, "unknown duration: manual only");
         assert!(!d.raw_mpv, "embed is the default");
         assert!(Config::parse("raw_mpv = true").unwrap().raw_mpv);

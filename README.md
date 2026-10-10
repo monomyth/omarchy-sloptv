@@ -20,7 +20,7 @@ Then run the setup script, which builds the app and adds the **Super+Shift+Ctrl+
 bash ~/.config/omarchy/plugins/io.github.monomyth.sloptv/scripts/install.sh
 ```
 
-When it finishes, `install.sh` prints a short how-to-run summary: the keybind, the bar icon (right side, if the widget is enabled), the in-app keys (`l`/`h` next/previous, `p` pause, `f` like, `o` open on X, `w` fullscreen, `q` quit) and the path to `uninstall.sh`.
+When it finishes, `install.sh` prints a short how-to-run summary: the keybind, the bar icon (right side, if the widget is enabled), the in-app keys (`l`/`h` next/previous, `p` pause, `f` like, `o` open on X, `w` fullscreen toggle, `q` quit) and the path to `uninstall.sh`.
 
 Or skip the keybind step and paste `bindings.hypr.lua.example` into `~/.config/hypr/bindings.lua` yourself.
 
@@ -55,12 +55,14 @@ The window is just X's embed, centered on a dark background (`theme=dark` is an 
 | s | shuffle on/off (default on) |
 | f | like: opens `https://x.com/intent/like?tweet_id=<id>` via `xdg-open`; you confirm on X with your own login |
 | o | open the post on X in your default browser (`xdg-open`); also your fallback for a post that won't play |
-| w | toggle window fullscreen (`f` is Like, not fullscreen) |
+| w | toggle fullscreen (the window starts fullscreen; `f` is Like, not fullscreen) |
 | q | quit |
 
 Keys work while our page has focus. Once you click inside X's player the player keeps the keyboard; click the dark background beside it to get the keys back (that also resumes a pause caused by the click). Small toasts confirm shuffle / auto-advance / like / open; there is no help panel.
 
-**Video-only view (tip).** Click the fullscreen button inside X's player: the window then shows just the video. The iframe is allowed to go fullscreen (`allow="fullscreen; autoplay; encrypted-media; picture-in-picture"` plus `allowfullscreen`) and slopTV's Chromium flags do not block it. Limits, stated honestly: while X's player is fullscreen our keys (`l`, `p`, `w`, ...) and the cards do not receive input, because the keyboard belongs to X's player; press Esc to leave fullscreen first. The auto-advance timer keeps running (clicking X's fullscreen button does not pause it), and when it fires slopTV changes the `src` of the same iframe element. A fullscreen that belongs to the page inside the iframe normally ends when that page is replaced, so expect to land back in the normal window after an auto-advance and to click X's fullscreen button again. Re-entering fullscreen automatically is not possible without a user click, and we do not touch the embed. `w` fullscreens our whole window (tweet card included), not the video alone.
+**Fullscreen: what works (tested in Chromium).** The window starts fullscreen (`start_fullscreen = true`; set it to `false` to open windowed). slopTV passes `--start-fullscreen` to Chromium and, on Hyprland, checks that the `slop-tv` window really is fullscreen and sends one `hyprctl dispatch fullscreen 0` if it is not. `w` toggles the window's fullscreen on and off (`f` is Like). This page-level fullscreen is the one that survives auto-advance: in a Chromium test, a timer-driven advance (no keypress) changed the iframe `src` and the window stayed fullscreen, and our keys (`l`, `p`, `w`) still reached the page afterwards.
+
+**Video-only view, and why it does not survive auto-advance.** Click the fullscreen button inside X's player to see just the video (the iframe allows it: `allow="fullscreen; autoplay; encrypted-media; picture-in-picture"` plus `allowfullscreen`, and the Chromium flags do not block it). In the same test, when X's player was fullscreen: our page received no keys (the player holds the keyboard; press Esc to leave), and when the timer advanced to the next post the fullscreen **ended** (fullscreen element went back to none). The countdown itself keeps running during X's fullscreen (clicking that button does not pause it). Entering fullscreen again needs a real user click on X's own button for every clip; a page cannot do that for you without a user gesture, and slopTV does not script or click inside X's embed. The alternatives we tried: making our own iframe element the fullscreen element does survive `src` changes, but then the embed is shown at its native 550 px, left-aligned on X's white page background, not scaled, and it is not video-only; fullscreening our page (`w`) is the same as the window-level fullscreen above. So the honest summary: hands-free auto-advance works in a fullscreen window showing the centered post card with its video; video-only view needs a click on X's fullscreen button per clip.
 
 **Previous / next cards.** Two small semi-transparent cards (thumbnail, @creator, short caption) sit in the bottom corners. They are visible only while the mouse moves, while paused, and for a few seconds when a new post appears, then fade out. Click one to jump. At the end of the list the next card says "loops to start". The thumbnails are plain `<img>` tags loaded from `pbs.twimg.com` (lazily, only after you accepted the privacy notice).
 
@@ -104,7 +106,7 @@ Fallbacks, in order: the on-disk copy of the last good feed; the embedded `<scri
 
 ## Config
 
-Copy `config.example.toml` to `~/.config/slop-tv/config.toml` (all keys optional). Embed mode uses `source_url`, `fallback_url`, `shuffle`, `auto_advance` (default true) and `embed_default_secs` (default 0: posts without a known duration wait for you); the other keys belong to the raw mode.
+Copy `config.example.toml` to `~/.config/slop-tv/config.toml` (all keys optional). Embed mode uses `source_url`, `fallback_url`, `shuffle`, `auto_advance` (default true), `embed_default_secs` (default 0: posts without a known duration wait for you) and `start_fullscreen` (default true); the other keys belong to the raw mode.
 
 CLI: `slop-tv [--source URL|PATH] [--config FILE] [--cache-dir DIR] [--check] [--reset-notice]`. `--check` fetches and parses the feed and exits. `--reset-notice` shows the privacy notice again. `SLOPTV_BIN=/path/to/slop-tv` makes the launcher use that binary instead of building.
 
@@ -203,7 +205,7 @@ cargo fmt --check && cargo clippy --all-targets && cargo test
 
 Built and tested on a Debian box (Xvfb, google-chrome-stable): `cargo build --release`, unit tests (with and without the `raw-mpv` feature), the local controller served over HTTP (state, next, ack, quit, token gate), Chromium launching with its private profile and class `slop-tv`, and the process exiting cleanly (Chromium killed, launch file removed). The raw mode was smoke-tested earlier with libmpv under Xvfb.
 
-Not verified: that X's embed actually renders and plays inside the window (screenshots under Xvfb show the embed loading its tweet card with the video poster and a play button; actual video playback was not observed), whether autoplay works or needs a click, embed behaviour for deleted or protected posts, anything on Wayland or Hyprland (app-id from `--class`, floating/tiling, `hyprctl` focus and close in `open.sh`), the Omarchy plugin loader, Quickshell loading `Service.qml` and `BarWidget.qml` (including the bar icon click and its default right placement), the bind via `o.bind` and `install-bind.sh` against a real `omarchy menu keybindings --print`, `xdg-open`, and the first-run build on Arch.
+Not verified: that `--start-fullscreen` and the Hyprland `hyprctl dispatch fullscreen 0` fallback make the window fullscreen on a real Hyprland desktop (checked only with Chrome under Xvfb + xfwm4, where the window did become fullscreen; the `hyprctl` syntax for Omarchy's Hyprland version is untested), that X's embed actually renders and plays inside the window (screenshots under Xvfb show the embed loading its tweet card with the video poster and a play button; actual video playback was not observed), whether autoplay works or needs a click, embed behaviour for deleted or protected posts, anything on Wayland or Hyprland (app-id from `--class`, floating/tiling, `hyprctl` focus and close in `open.sh`), the Omarchy plugin loader, Quickshell loading `Service.qml` and `BarWidget.qml` (including the bar icon click and its default right placement), the bind via `o.bind` and `install-bind.sh` against a real `omarchy menu keybindings --print`, `xdg-open`, and the first-run build on Arch.
 
 ## Credits
 
