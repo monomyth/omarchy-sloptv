@@ -10,11 +10,17 @@ rust-version = "1.80"
 name = "slop-tv"
 path = "src/main.rs"
 
+[features]
+# Default build includes the hidden, unofficial raw-mpv mode (needs libmpv at build time).
+# `--no-default-features` builds the embed-only controller (no libmpv, no image decoding).
+default = ["raw-mpv"]
+raw-mpv = ["dep:libmpv2", "dep:image"]
+
 [dependencies]
 anyhow = "1.0.104"
 dirs = "7.0.0"
-image = { version = "0.25.6", default-features = false, features = ["jpeg", "png"] }
-libmpv2 = "6.0.0"
+image = { optional = true, version = "0.25.6", default-features = false, features = ["jpeg", "png"] }
+libmpv2 = { version = "6.0.0", optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.152"
 toml = "1.0.7"

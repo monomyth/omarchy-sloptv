@@ -167,6 +167,7 @@ pub fn download(url: &str, dest: &Path) -> Result<u64> {
     r
 }
 
+#[cfg(feature = "raw-mpv")]
 /// Decode a poster (jpg/png), cover-crop to w x h, write raw BGRA (opaque) for mpv `overlay-add`.
 pub fn make_tile(poster: &Path, out: &Path, w: u32, h: u32) -> Result<()> {
     let img = image::ImageReader::open(poster)?
@@ -290,6 +291,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    #[cfg(feature = "raw-mpv")]
     #[test]
     fn download_and_tile() {
         let dir = std::env::temp_dir().join(format!("slop-tv-dl-{}", std::process::id()));

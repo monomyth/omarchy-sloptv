@@ -5,12 +5,40 @@
   "version": "0.1.0",
   "author": "Eugene Ray / Senior Engineer",
   "license": "MIT",
-  "description": "Keyboard-driven player for the Slop Cannon feed (Rust + libmpv). Keybind only, no bar widget; run scripts/install.sh once to build it.",
+  "description": "Keyboard-driven player for the Slop Cannon feed: X's official embedded player in a Chromium app window (Rust controller); built once into ~/.cache. Keybind plus a bar icon.",
   "kinds": [
-    "service"
+    "service",
+    "bar-widget"
   ],
   "keepLoaded": true,
   "entryPoints": {
-    "service": "Service.qml"
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "slopTV",
+    "description": "Bar icon that starts, focuses or closes slopTV (also Super+Shift+Ctrl+T).",
+    "category": "Media",
+    "aliases": [
+      "slop",
+      "sloptv",
+      "slop-tv",
+      "slop-cannon",
+      "video",
+      "mpv"
+    ],
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "showIcon": true
+    },
+    "schema": [
+      {
+        "key": "showIcon",
+        "type": "boolean",
+        "label": "Show bar icon (keybind works either way)",
+        "defaultValue": true
+      }
+    ]
   }
 }

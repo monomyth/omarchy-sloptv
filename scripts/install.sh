@@ -18,4 +18,11 @@ if [[ "$status" -eq 2 ]]; then
 elif [[ "$status" -ne 0 ]]; then
   exit "$status"
 fi
-echo "slopTV: done. Press Super+Shift+Ctrl+T."
+cat <<EOF
+slopTV: done. How to run:
+  Keybind:   Super+Shift+Ctrl+T starts, focuses or closes the player
+  Bar icon:  on the right of the bar if the widget is enabled (click = same toggle)
+  In app:    ? help, l/h next/prev, o open on X, q quit (click the bottom bar first so it has the keyboard)
+  First run: a one-time privacy notice explains that X's own embedded player is used
+  Remove:    bash "$SCRIPT_DIR/uninstall.sh"
+EOF

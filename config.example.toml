@@ -1,4 +1,5 @@
 # ~/.config/slop-tv/config.toml  (all keys optional; these are the defaults)
+# Embed mode (default) uses only: source_url, fallback_url, shuffle. The rest below is for the hidden raw_mpv mode.
 source_url   = "https://jon-slop.grok.me/videos.json"  # or a local path / file:// URL for development
 fallback_url = "https://jon-slop.grok.me"              # last resort: page with embedded <script id="data"> JSON; "" disables
 volume       = 60        # 0-130, applied at start (audio stays muted until the first keypress)
@@ -12,3 +13,9 @@ hwdec        = "auto-safe"
 # vo = ""            # mpv video output override (default: gpu)
 # ao = ""            # mpv audio output override
 # gpu_context = ""   # e.g. "wayland" or "x11egl"; empty = mpv auto
+
+# Advanced (hidden, raw_mpv mode only, leave off): save clips to ~/.cache/slop-tv and prefetch the next one (same as --download).
+# Default is pure streaming: mpv plays the video.twimg.com mp4 URL directly and nothing but small poster tiles is cached.
+download_clips = false
+# Hidden, unofficial (see README 'Advanced'): play raw mp4s with libmpv instead of X's embedded player.
+raw_mpv = false

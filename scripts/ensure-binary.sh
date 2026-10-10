@@ -43,15 +43,23 @@ if command -v slop-tv >/dev/null 2>&1; then
 fi
 
 command -v cargo >/dev/null 2>&1 \
-  || die "cargo not found. Install Rust (Arch: sudo pacman -S rust pkgconf mpv), then open slopTV again."
+  || die "cargo not found. Install Rust (Arch: sudo pacman -S rust pkgconf), then open slopTV again."
 command -v pkg-config >/dev/null 2>&1 \
   || die "pkg-config not found (Arch: sudo pacman -S pkgconf), then open slopTV again."
-pkg-config --exists mpv 2>/dev/null \
-  || die "libmpv not found (pkg-config 'mpv'). Arch: sudo pacman -S mpv, then open slopTV again."
+FEATURES=()
+if ! pkg-config --exists mpv 2>/dev/null; then
+  # libmpv is only needed for the hidden, unofficial raw-mpv mode: build the embed-only binary.
+  FEATURES=(--no-default-features)
+  echo "slopTV: libmpv not found, building without the optional raw-mpv mode (Arch: sudo pacman -S mpv to add it)." >&2
+fi
+if ! command -v chromium >/dev/null 2>&1 && ! command -v chromium-browser >/dev/null 2>&1 \
+   && ! command -v google-chrome-stable >/dev/null 2>&1 && ! command -v google-chrome >/dev/null 2>&1; then
+  echo "slopTV: warning: Chromium/Chrome not found; the player needs one at run time (Arch: sudo pacman -S chromium)." >&2
+fi
 
 mkdir -p "$CACHE_DIR"
 say "first run: building slop-tv (cargo build --release), this takes a few minutes..."
-if ! (cd "$REPO_DIR" && CARGO_TARGET_DIR="$TARGET_DIR" cargo build --release --locked >"$CACHE_DIR/build.log" 2>&1); then
+if ! (cd "$REPO_DIR" && CARGO_TARGET_DIR="$TARGET_DIR" cargo build --release --locked ${FEATURES[@]+"${FEATURES[@]}"} >"$CACHE_DIR/build.log" 2>&1); then
   die "build failed, see $CACHE_DIR/build.log"
 fi
 [[ -x "$BIN" ]] || die "build finished but $BIN is missing, see $CACHE_DIR/build.log"

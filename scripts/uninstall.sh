@@ -36,8 +36,9 @@ else
 fi
 
 pkill -x slop-tv 2>/dev/null || true
+pkill -f "omarchy/sloptv/chromium-profile" 2>/dev/null || true
 rm -rf "${XDG_CACHE_HOME:-$HOME/.cache}/omarchy/sloptv" "${XDG_CACHE_HOME:-$HOME/.cache}/slop-tv" \
-       "${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/sloptv"
+       "${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/sloptv" "${XDG_STATE_HOME:-$HOME/.local/state}/slop-tv"
 (( KEEP_CONFIG )) || rm -rf "${XDG_CONFIG_HOME:-$HOME/.config}/slop-tv"
 if (( KEEP_CONFIG )); then echo "slopTV: removed caches (config kept)"; else echo "slopTV: removed caches and config"; fi
 

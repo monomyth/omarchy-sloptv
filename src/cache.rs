@@ -105,6 +105,17 @@ impl Cache {
     }
 }
 
+/// What to hand to mpv for a clip: a clip file already on disk (only exists if it was
+/// downloaded earlier, e.g. with `download_clips`), otherwise the remote URL itself (streamed).
+/// Never writes anything.
+pub fn playback_source(cache: &Cache, id: &str, url: &str) -> String {
+    if cache.has_clip(id) {
+        cache.clip(id).to_string_lossy().into_owned()
+    } else {
+        url.to_string()
+    }
+}
+
 fn safe(id: &str) -> String {
     id.chars()
         .map(|c| {
@@ -171,6 +182,37 @@ mod tests {
         assert!(c.has_clip("a"), "recently used survives");
         assert!(c.has_clip("d"));
         assert!(!c.has_clip("b") && !c.has_clip("c"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    #[test]
+    fn streaming_play_writes_no_clip_file() {
+        let dir = std::env::temp_dir().join(format!("slop-tv-stream-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let c = Cache::new(dir.join("cache"));
+        // a local "remote" clip served via file path, as in development
+        let src = dir.join("clip.mp4");
+        std::fs::write(&src, b"not really mp4").unwrap();
+        let cfg = crate::config::Config::default();
+        assert!(!cfg.download_clips);
+        // simulated play: resolve the source (what loadfile gets) and run the prefetch decision
+        let url = src.to_string_lossy().into_owned();
+        assert_eq!(
+            playback_source(&c, "42", &url),
+            url,
+            "streams the URL as is"
+        );
+        assert!(!c.has_clip("42"));
+        assert_eq!(
+            std::fs::read_dir(dir.join("cache/clips")).unwrap().count(),
+            0
+        );
+        assert_eq!(c.size(), 0);
+        // opt-in: the download path does write into clips/, and then it is what plays
+        crate::fetch::download(&url, &c.clip("42")).unwrap();
+        assert_eq!(
+            playback_source(&c, "42", &url),
+            c.clip("42").to_string_lossy()
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
     #[test]
