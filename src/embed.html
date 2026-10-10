@@ -29,7 +29,7 @@
   #notice button{margin-top:10px;margin-right:6px;background:#1c1c1e;color:var(--fg);border:1px solid #333;border-radius:8px;padding:5px 12px;cursor:pointer;font:inherit}
   #notice button:hover{border-color:var(--accent)}
 </style>
-<div id="stage"><iframe id="f" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowfullscreen></iframe></div>
+<div id="stage"><iframe id="f" allow="fullscreen; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe></div>
 <div id="prog"></div>
 <button class="card empty" id="cp"><img alt=""><span class="t"><b></b><span class="c"></span></span></button>
 <button class="card empty" id="cn"><img alt=""><span class="t"><b></b><span class="c"></span><em></em></span></button>
@@ -112,7 +112,11 @@ function show(s) {
 }
 $('f').onload = () => arm();
 function go(p) { return api(p, true).then(s => { show(s); if (['auto', 'next', 'prev', 'ack'].includes(p)) arm(); return s; }); }
-addEventListener('blur', () => setTimeout(() => { if (document.activeElement === $('f')) setPaused(true); }, 0));
+// X's own fullscreen button: the iframe element becomes document.fullscreenElement. Keys no longer reach
+// this page then, so keep the countdown running (clicking that button would otherwise pause it).
+let inFs = false;
+document.addEventListener('fullscreenchange', () => { inFs = document.fullscreenElement === $('f'); if (inFs) setPaused(false, true); });
+addEventListener('blur', () => setTimeout(() => { if (!inFs && document.activeElement === $('f')) setPaused(true); }, 0));
 addEventListener('mousemove', () => { idleT = Date.now(); showUi(2200); });
 addEventListener('focus', () => { if (P) setPaused(false); });
 setInterval(tick, 250);

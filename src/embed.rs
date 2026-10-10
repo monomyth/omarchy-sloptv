@@ -727,6 +727,28 @@ mod tests {
         assert!(PAGE.contains("height:2px"), "thin progress line");
     }
     #[test]
+    fn iframe_allows_fullscreen_and_timer_survives_it() {
+        assert!(PAGE.contains(
+            "allow=\"fullscreen; autoplay; encrypted-media; picture-in-picture\" allowfullscreen"
+        ));
+        assert!(
+            PAGE.contains("fullscreenchange")
+                && PAGE.contains("document.fullscreenElement === $('f')")
+        );
+        assert!(
+            PAGE.contains("!inFs && document.activeElement"),
+            "the fullscreen click must not pause"
+        );
+        // one iframe element for the whole session: only its src changes
+        assert_eq!(PAGE.matches("<iframe").count(), 1);
+        assert!(PAGE.contains("$('f').src = s.embed"));
+        // no browser flag that would block (or force) iframe fullscreen
+        let a = browser_args(Path::new("/p"), "file:///b.html").join(" ");
+        assert!(
+            !a.contains("fullscreen") && !a.contains("disable-features") && !a.contains("kiosk")
+        );
+    }
+    #[test]
     fn page_loads_no_x_scripts_and_no_injection() {
         assert!(
             !PAGE.contains("Tweet.html"),
