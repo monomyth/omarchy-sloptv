@@ -10,17 +10,17 @@ One shortcut starts a fullscreen libmpv player for the feed curated at [jon-slop
 omarchy plugin add https://github.com/monomyth/omarchy-sloptv.git --enable
 ```
 
-Then add **Super+Shift+Ctrl+T** either way:
+Then run the setup script, which builds the app and adds the **Super+Shift+Ctrl+T** keybind:
 
 ```sh
-bash ~/.config/omarchy/plugins/io.github.monomyth.sloptv/scripts/install-bind.sh
+bash ~/.config/omarchy/plugins/io.github.monomyth.sloptv/scripts/install.sh
 ```
 
-Or paste `bindings.hypr.lua.example` into `~/.config/hypr/bindings.lua` yourself.
+Or skip the keybind step and paste `bindings.hypr.lua.example` into `~/.config/hypr/bindings.lua` yourself.
 
 The install script checks whether that chord is free (Omarchy keybindings print plus your `bindings.lua`). If slopTV already owns it, it does nothing. If something else owns it, it prints the conflict and exits 2. Otherwise it appends the portable `sloptv_open()` helper (`os.getenv("HOME")`, no hardcoded path). Super+Shift+Ctrl+T is unused in Omarchy's default `default/hypr/bindings/*.lua` (only Super+T, Super+Ctrl+T and Super+Ctrl+Alt+T use T).
 
-Needs `mpv` (provides libmpv), `jq`, `hyprctl`, plus `wl-clipboard` and `xdg-utils` for the copy / open keys. `yt-dlp` is only used for records without a direct mp4. First open builds the binary once with `cargo build --release` into `~/.cache/omarchy/sloptv/` (needs `rust` and `pkgconf`; a few minutes). If cargo or libmpv is missing you get a notification saying what to install.
+Needs `mpv` (provides libmpv), `jq`, `hyprctl`, plus `wl-clipboard` and `xdg-utils` for the copy / open keys. `yt-dlp` is only used for records without a direct mp4. `scripts/install.sh` builds the binary once (so the first launch is instant) with `cargo build --release` into `~/.cache/omarchy/sloptv/` (needs `rust` and `pkgconf`; a few minutes). If cargo or libmpv is missing you get a notification saying what to install.
 
 ```sh
 sudo pacman -S mpv rust pkgconf jq wl-clipboard xdg-utils yt-dlp
@@ -32,7 +32,7 @@ sudo pacman -S mpv rust pkgconf jq wl-clipboard xdg-utils yt-dlp
 
 | Situation | What happens |
 | --- | --- |
-| Not running | Starts slopTV (builds it first if this is the first run) |
+| Not running | Starts slopTV (if you skipped `install.sh`, it builds on the first run) |
 | Running, another window focused | Focuses slopTV |
 | slopTV focused | Closes it |
 
