@@ -1,10 +1,9 @@
 # ~/.config/slop-tv/config.toml  (all keys optional; these are the defaults)
-# Embed mode (default) uses only: source_url, fallback_url, shuffle. The rest below is for the hidden raw_mpv mode.
+# Embed mode (default) uses only: source_url, fallback_url, shuffle, auto_advance, embed_default_secs. The rest below is for the hidden raw_mpv mode.
 source_url   = "https://jon-slop.grok.me/videos.json"  # or a local path / file:// URL for development
 fallback_url = "https://jon-slop.grok.me"              # last resort: page with embedded <script id="data"> JSON; "" disables
 volume       = 60        # 0-130, applied at start (audio stays muted until the first keypress)
 shuffle      = true
-loop_clip    = true      # true: loop the clip until `n`; false: advance at the end
 fullscreen   = true
 cache_max_mb = 2048      # cap for clips + posters + tiles in ~/.cache/slop-tv
 poll_minutes = 60        # feed re-check interval (ETag, expect 304)
@@ -19,3 +18,5 @@ hwdec        = "auto-safe"
 download_clips = false
 # Hidden, unofficial (see README 'Advanced'): play raw mp4s with libmpv instead of X's embedded player.
 raw_mpv = false
+auto_advance       = true   # embed mode: move on by timer after the post's known duration (iframe events are not readable)
+embed_default_secs = 0      # embed mode: seconds to show a post with no known duration; 0 = wait for next

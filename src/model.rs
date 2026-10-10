@@ -252,4 +252,19 @@ mod tests {
         assert!(c.iter().any(|&i| v[i].id == "2092060538335351253"));
         assert!(filter(&v, "zzzzqqqq").is_empty());
     }
+    #[test]
+    fn fixture_records_have_durations() {
+        let b = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/videos.json"
+        ));
+        if let Ok(b) = b {
+            let v = parse_any(&b).unwrap();
+            assert!(!v.is_empty());
+            assert!(
+                v.iter().all(|x| x.duration_ms.unwrap_or(0) > 0),
+                "embed auto-advance needs durations"
+            );
+        }
+    }
 }

@@ -35,6 +35,12 @@ pub fn embed_url(id: &str) -> Option<String> {
     ))
 }
 
+/// X's own like-intent page for a post; the user confirms there with their own login.
+pub fn like_url(id: &str) -> Option<String> {
+    embed_url(id)?; // same numeric-id guard
+    Some(format!("https://x.com/intent/like?tweet_id={id}"))
+}
+
 /// `o` only ever opens an X / Twitter post URL.
 pub fn is_x_post_url(u: &str) -> bool {
     [
@@ -45,6 +51,32 @@ pub fn is_x_post_url(u: &str) -> bool {
     .iter()
     .any(|p| u.starts_with(p))
         && !u.contains(char::is_whitespace)
+}
+
+/// Poster thumbnails are only ever loaded from X's image CDN, as a plain <img>.
+pub fn safe_poster(u: &str) -> Option<&str> {
+    (u.starts_with("https://pbs.twimg.com/") && !u.contains(['"', '\'', '<', '>', ' ', '\\']))
+        .then_some(u)
+}
+
+/// How long to wait before auto-advancing, from the feed's known duration (seconds).
+pub fn advance_secs(duration_ms: Option<u64>, default_secs: u64) -> Option<u64> {
+    match duration_ms {
+        Some(ms) if ms > 0 => Some(ms.div_ceil(1000)),
+        _ if default_secs > 0 => Some(default_secs),
+        _ => None,
+    }
+}
+
+fn snippet(s: &str, max: usize) -> String {
+    let one: String = s.split_whitespace().collect::<Vec<_>>().join(" ");
+    if one.chars().count() <= max {
+        one
+    } else {
+        let mut t: String = one.chars().take(max).collect();
+        t.push('\u{2026}');
+        t
+    }
 }
 
 pub fn notice_path() -> PathBuf {
@@ -91,6 +123,8 @@ pub struct Ctl {
     pub notice_file: PathBuf,
     pub token: String,
     pub last_ping: Option<Instant>,
+    pub auto_advance: bool,
+    pub default_secs: u64,
 }
 
 impl Ctl {
@@ -110,6 +144,8 @@ impl Ctl {
             notice_file,
             token: String::new(),
             last_ping: None,
+            auto_advance: true,
+            default_secs: 0,
         };
         c.cur = c.queue.next();
         c
@@ -119,7 +155,30 @@ impl Ctl {
         !self.notice_file.exists()
     }
 
-    fn state(&self) -> String {
+    fn card(&self, i: Option<usize>, wraps: bool, notice: bool) -> serde_json::Value {
+        let Some(v) = i.and_then(|i| self.videos.get(i)) else {
+            return serde_json::Value::Null;
+        };
+        let poster = if notice {
+            None
+        } else {
+            v.poster.as_deref().and_then(safe_poster)
+        };
+        serde_json::json!({
+            "creator": v.creator,
+            "caption": snippet(&v.caption, 70),
+            "poster": poster,
+            "wraps": wraps,
+        })
+    }
+
+    fn state(&mut self) -> String {
+        let notice = self.notice_pending();
+        let next = self.queue.peek_next();
+        let prev = self.queue.peek_prev();
+        let wraps = self.queue.next_wraps();
+        let prev_card = self.card(prev, false, notice);
+        let next_card = self.card(next, wraps, notice);
         let v = self.cur.and_then(|i| self.videos.get(i));
         serde_json::json!({
             "id": v.map(|v| v.id.as_str()).unwrap_or(""),
@@ -127,9 +186,13 @@ impl Ctl {
             "creator": v.map(|v| v.creator.as_str()).unwrap_or(""),
             "caption": v.map(|v| v.caption.as_str()).unwrap_or(""),
             "shuffle": self.queue.shuffle(),
-            "notice": self.notice_pending(),
+            "notice": notice,
             "pos": self.cur.unwrap_or(0),
             "total": self.videos.len(),
+            "auto": self.auto_advance,
+            "duration_secs": v.and_then(|v| advance_secs(v.duration_ms, self.default_secs)),
+            "prev": prev_card,
+            "next": next_card,
         })
         .to_string()
     }
@@ -142,7 +205,14 @@ impl Ctl {
         };
         let mutating = matches!(
             rest,
-            "api/next" | "api/prev" | "api/open" | "api/shuffle" | "api/ack" | "api/quit"
+            "api/next"
+                | "api/prev"
+                | "api/open"
+                | "api/shuffle"
+                | "api/auto"
+                | "api/like"
+                | "api/ack"
+                | "api/quit"
         );
         if mutating && method != "POST" {
             return plain(405, "POST only");
@@ -176,6 +246,10 @@ impl Ctl {
                 self.queue.set_shuffle(on);
                 json(self.state())
             }
+            "api/auto" => {
+                self.auto_advance = !self.auto_advance;
+                json(self.state())
+            }
             "api/ack" => {
                 if let Some(d) = self.notice_file.parent() {
                     let _ = std::fs::create_dir_all(d);
@@ -189,6 +263,17 @@ impl Ctl {
                     .and_then(|i| self.videos.get(i))
                     .map(|v| v.url.clone())
                     .filter(|u| is_x_post_url(u));
+                let mut r = json(self.state());
+                if let Some(u) = url {
+                    r.action = Action::Open(u);
+                }
+                r
+            }
+            "api/like" => {
+                let url = self
+                    .cur
+                    .and_then(|i| self.videos.get(i))
+                    .and_then(|v| like_url(&v.id));
                 let mut r = json(self.state());
                 if let Some(u) = url {
                     r.action = Action::Open(u);
@@ -332,6 +417,8 @@ pub fn run(cfg: Config, cache: Cache, reset_notice: bool) -> Result<()> {
         ^ ((std::process::id() as u64) << 32);
     let mut ctl = Ctl::new(fr.videos, cfg.shuffle, seed, notice);
     ctl.token = token();
+    ctl.auto_advance = cfg.auto_advance;
+    ctl.default_secs = cfg.embed_default_secs;
     let listener = TcpListener::bind("127.0.0.1:0")?;
     listener.set_nonblocking(true)?;
     let url = format!(
@@ -400,7 +487,9 @@ mod tests {
         }
     }
     fn ctl() -> Ctl {
-        let f = std::env::temp_dir().join(format!("slop-ack-{}-{:p}", std::process::id(), &0));
+        static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = N.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let f = std::env::temp_dir().join(format!("slop-ack-{}-{n}", std::process::id()));
         let _ = std::fs::remove_file(&f);
         let mut c = Ctl::new(
             vec![vid("1"), vid("2"), vid("bad id"), vid("3")],
@@ -474,6 +563,157 @@ mod tests {
         c.handle("POST", "/t/tok/api/ack");
         assert!(!c.notice_pending());
         let _ = std::fs::remove_file(&c.notice_file);
+    }
+    fn state(c: &mut Ctl) -> serde_json::Value {
+        serde_json::from_str(&c.handle("GET", "/t/tok/api/state").body).unwrap()
+    }
+    #[test]
+    fn advance_secs_from_feed_duration_or_default() {
+        assert_eq!(advance_secs(Some(163_640), 0), Some(164));
+        assert_eq!(advance_secs(Some(8_000), 30), Some(8));
+        assert_eq!(
+            advance_secs(None, 0),
+            None,
+            "unknown + no default: manual only"
+        );
+        assert_eq!(advance_secs(Some(0), 0), None);
+        assert_eq!(advance_secs(None, 20), Some(20));
+    }
+    #[test]
+    fn state_carries_duration_and_auto_flag() {
+        let mut c = ctl();
+        c.videos[0].duration_ms = Some(12_500);
+        c.default_secs = 0;
+        let st = state(&mut c);
+        assert_eq!(st["duration_secs"], 13);
+        assert_eq!(st["auto"], true);
+        c.handle("POST", "/t/tok/api/auto");
+        assert_eq!(state(&mut c)["auto"], false);
+        assert_eq!(c.handle("GET", "/t/tok/api/auto").status, 405);
+        c.handle("POST", "/t/tok/api/next");
+        assert!(state(&mut c)["duration_secs"].is_null(), "unknown duration");
+    }
+    #[test]
+    fn preview_cards_prev_next_and_wrap_marker() {
+        let mut c = ctl(); // ids 1, 2, (bad), 3 in order
+        c.videos[1].poster = Some("https://pbs.twimg.com/amplify_video_thumb/1/img/a.jpg".into());
+        c.videos[3].poster = Some("https://evil.example/x.jpg".into());
+        c.handle("POST", "/t/tok/api/ack");
+        let st = state(&mut c); // on id 1
+        assert!(st["prev"].is_null());
+        assert_eq!(
+            st["next"]["poster"],
+            "https://pbs.twimg.com/amplify_video_thumb/1/img/a.jpg"
+        );
+        assert_eq!(st["next"]["wraps"], false);
+        c.handle("POST", "/t/tok/api/next"); // id 2
+        let st = state(&mut c);
+        assert_eq!(st["prev"]["creator"], "a");
+        assert!(st["next"]["poster"].is_null(), "non-pbs poster dropped");
+        c.handle("POST", "/t/tok/api/next"); // id 3, last
+        let st = state(&mut c);
+        assert_eq!(st["next"]["wraps"], true, "next loops to start");
+        c.handle("POST", "/t/tok/api/next");
+        assert_eq!(
+            state(&mut c)["id"],
+            "1",
+            "wraps to the first only after the end"
+        );
+        let _ = std::fs::remove_file(&c.notice_file);
+    }
+    #[test]
+    fn no_poster_urls_before_notice_is_acknowledged() {
+        let mut c = ctl();
+        c.videos[1].poster = Some("https://pbs.twimg.com/a.jpg".into());
+        assert!(state(&mut c)["next"]["poster"].is_null());
+    }
+    #[test]
+    fn snippet_and_poster_validation() {
+        assert_eq!(snippet("a  b\nc", 10), "a b c");
+        assert!(snippet(&"x".repeat(100), 70).ends_with('\u{2026}'));
+        assert!(safe_poster("https://pbs.twimg.com/a.jpg").is_some());
+        assert!(safe_poster("https://pbs.twimg.com/a\".jpg").is_none());
+        assert!(safe_poster("http://pbs.twimg.com/a.jpg").is_none());
+    }
+    #[test]
+    fn like_opens_intent_url_for_numeric_ids_only() {
+        assert_eq!(
+            like_url("123").unwrap(),
+            "https://x.com/intent/like?tweet_id=123"
+        );
+        assert!(like_url("1&x=2").is_none() && like_url("").is_none());
+        let mut c = ctl();
+        assert_eq!(c.handle("GET", "/t/tok/api/like").status, 405);
+        let r = c.handle("POST", "/t/tok/api/like");
+        assert!(matches!(r.action, Action::Open(u) if u == "https://x.com/intent/like?tweet_id=1"));
+        let _ = std::fs::remove_file(&c.notice_file);
+    }
+    /// Run the page's pure timer logic (between TIMER-BEGIN/END) under node with a fake clock.
+    /// Returns None (test skipped) when node is not installed.
+    fn run_timer_js(test: &str) -> Option<String> {
+        let a = PAGE.find("// TIMER-BEGIN")?;
+        let b = PAGE.find("// TIMER-END")?;
+        let js = format!("{}\n{}", &PAGE[a..b], test);
+        let out = Command::new("node").arg("-e").arg(js).output().ok()?;
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    }
+    #[test]
+    fn timer_fires_after_each_clips_own_duration_plus_one_second() {
+        let r = run_timer_js(
+            r#"
+            const out = [];
+            for (const d of [4, 13, 164, 1025]) {
+              const t = makeTimer(1000);
+              t.start(d, true, 5000);                 // clip shown at t=5000
+              const early = t.due(5000 + d * 1000 + 999);
+              const on = t.due(5000 + d * 1000 + 1000);
+              const again = t.due(5000 + d * 1000 + 5000);
+              out.push([d, early, on, again].join(':'));
+            }
+            const n = makeTimer(1000); n.start(0, true, 0);      // no duration: never fires
+            const o = makeTimer(1000); o.start(10, false, 0);    // auto-advance off: never fires
+            out.push(n.due(1e9), o.due(1e9));
+            // next/prev resets: a new start() gives the new clip its own full countdown
+            const t = makeTimer(1000); t.start(10, true, 0); t.start(3, true, 8000);
+            out.push(t.due(8000 + 3999), t.due(8000 + 4000));
+            console.log(out.join(' '));
+            "#,
+        );
+        if let Some(r) = r {
+            assert_eq!(
+                r,
+                "4:false:true:false 13:false:true:false 164:false:true:false 1025:false:true:false false false false true"
+            );
+        }
+    }
+    #[test]
+    fn pause_freezes_and_resume_continues_from_remaining_time() {
+        let r = run_timer_js(
+            r#"
+            const out = [];
+            const t = makeTimer(1000);
+            t.start(10, true, 0);                       // total 11000 ms
+            t.pause(4000);                              // 7000 ms left
+            out.push(t.left(4000), t.left(90000), t.due(90000));   // frozen, never due
+            t.resume(50000);                            // continues: 7000 ms left, not 11000
+            out.push(t.left(50000), t.due(56999), t.due(57000));
+            // pausing twice or resuming when not paused changes nothing
+            const u = makeTimer(1000); u.start(10, true, 0);
+            u.resume(500); u.pause(2000); u.pause(9000); u.resume(10000);
+            out.push(u.left(10000));
+            // pause on a timer that is not running (no duration) is a no-op for the timer
+            const v = makeTimer(1000); v.start(0, true, 0); v.pause(5); out.push(v.paused, v.due(1e9));
+            console.log(out.join(' '));
+            "#,
+        );
+        if let Some(r) = r {
+            assert_eq!(r, "7000 7000 false 7000 false true 9000 false false");
+        }
     }
     #[test]
     fn page_loads_no_x_scripts_and_no_injection() {

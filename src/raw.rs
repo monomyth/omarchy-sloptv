@@ -105,7 +105,6 @@ struct App {
     heard_key: bool,
     fails: u32,
     retry_at: Option<Instant>,
-    loop_clip: bool,
     quit: bool,
     last_ass: String,
     overlays: HashMap<i32, (PathBuf, i32, i32)>,
@@ -171,17 +170,16 @@ impl App {
             i.set_property("hwdec", cfg.hwdec.as_str())?;
             i.set_property("mute", true)?;
             i.set_property("volume", cfg.volume as f64)?;
-            i.set_property("loop-file", if cfg.loop_clip { "inf" } else { "no" })?;
+            // never loop a clip: at end-file EOF we advance to the next one (wrapping after the last)
+            i.set_property("loop-file", "no")?;
             i.set_property("cursor-autohide", 2000i64)?;
             i.set_property("osd-font", cfg.font.as_str())?;
             i.set_property("network-timeout", 15i64)?;
             // Never let mpv shell out to yt-dlp: that would load X post pages. Plain mp4 URLs only.
             i.set_property("ytdl", false)?;
-            // Streaming: let mpv's demuxer cache do the buffering. The back buffer lets
-            // loop-file=inf seek back inside the cache instead of re-downloading short clips.
+            // Streaming: let mpv's demuxer cache do the buffering.
             i.set_property("cache", "yes")?;
             i.set_property("demuxer-max-bytes", "64MiB")?;
-            i.set_property("demuxer-max-back-bytes", "64MiB")?;
             i.set_property("demuxer-readahead-secs", 20i64)?;
             let _ = i.set_property("background", "color");
             let _ = i.set_property("background-color", "#1a1b1c");
@@ -291,7 +289,6 @@ impl App {
             heard_key: false,
             fails: 0,
             retry_at: None,
-            loop_clip: cfg.loop_clip,
             quit: false,
             last_ass: String::new(),
             overlays: HashMap::new(),
@@ -557,12 +554,6 @@ impl App {
                 self.queue.set_shuffle(on);
                 self.prefetch();
             }
-            "r" => {
-                self.loop_clip = !self.loop_clip;
-                let _ = self
-                    .mpv
-                    .set_property("loop-file", if self.loop_clip { "inf" } else { "no" });
-            }
             "n" => self.advance(),
             "f" => {
                 let f: bool = self.mpv.get_property("fullscreen").unwrap_or(false);
@@ -698,7 +689,7 @@ impl App {
             }
             .into(),
         );
-        p.push(if self.loop_clip { "loop" } else { "advance" }.into());
+        p.push("autoplay next".into());
         if let Some((s, until)) = &self.flash {
             if Instant::now() < *until {
                 p.insert(0, s.clone());

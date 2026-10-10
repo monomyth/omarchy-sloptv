@@ -280,7 +280,6 @@ pub const HELP: &[(&str, &str)] = &[
     ("j  k  Up  Down", "volume (grid: move focus)"),
     ("m", "mute"),
     ("s", "shuffle on/off"),
-    ("r", "loop clip / advance at end"),
     ("n", "next clip (always)"),
     ("f", "fullscreen"),
     ("i", "credit card"),

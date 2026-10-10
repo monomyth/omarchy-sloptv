@@ -13,9 +13,11 @@ pub struct Config {
     pub fallback_url: String,
     pub volume: i64,
     pub shuffle: bool,
-    /// true: loop the current clip until `n`; false: advance at the end of a clip.
-    pub loop_clip: bool,
     pub fullscreen: bool,
+    /// Embed mode: move to the next post by timer when the post's known duration has elapsed.
+    pub auto_advance: bool,
+    /// Embed mode: seconds to show a post whose duration is unknown (0 = stay until you press next).
+    pub embed_default_secs: u64,
     pub cache_max_mb: u64,
     /// Hidden, opt-in, unofficial: play raw mp4s with libmpv instead of X's embedded player.
     pub raw_mpv: bool,
@@ -37,8 +39,9 @@ impl Default for Config {
             fallback_url: DEFAULT_FALLBACK.into(),
             volume: 60,
             shuffle: true,
-            loop_clip: true,
             fullscreen: true,
+            auto_advance: true,
+            embed_default_secs: 0,
             cache_max_mb: 2048,
             download_clips: false,
             raw_mpv: false,
@@ -102,7 +105,8 @@ mod tests {
     #[test]
     fn defaults_and_partial() {
         let d = Config::default();
-        assert!(d.shuffle && d.loop_clip);
+        assert!(d.shuffle && d.auto_advance);
+        assert_eq!(d.embed_default_secs, 0, "unknown duration: manual only");
         assert!(!d.raw_mpv, "embed is the default");
         assert!(Config::parse("raw_mpv = true").unwrap().raw_mpv);
         assert!(!d.download_clips, "streaming is the default");

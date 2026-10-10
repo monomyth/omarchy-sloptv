@@ -6,18 +6,43 @@
   #wrap{display:flex;flex-direction:column;height:100%}
   #stage{flex:1;min-height:0;display:flex;justify-content:center}
   iframe{border:0;width:100%;max-width:560px;height:100%;background:#1a1b1c}
-  #bar{padding:6px 10px;border-top:1px solid #333;display:flex;gap:8px;align-items:center;outline:none}
+  #prog{height:3px;background:#2a2b2c}#progf{height:100%;width:0;background:#78e8c3}
+  #bar{padding:6px 10px;border-top:1px solid #333;display:flex;flex-direction:column;gap:6px;outline:none}
+  #row1,#row2{display:flex;gap:8px;align-items:center}
+  #row2{justify-content:space-between}
   #cap{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;opacity:.8}
+  #timer{opacity:.75;font-size:12px;white-space:nowrap}
+  .card{flex:1;min-width:0;max-width:50%;display:flex;gap:8px;align-items:center;text-align:left;padding:4px;height:46px;overflow:hidden}
+  .card.empty{visibility:hidden}
+  .card img{width:64px;height:36px;object-fit:cover;border-radius:3px;background:#222;flex:none}
+  .card .t{min-width:0;font-size:12px;line-height:1.25}
+  .card b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .card span{display:block;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .card em{font-style:normal;color:#78e8c3;font-size:11px}
+  #cn{flex-direction:row-reverse;text-align:right}
+  body.paused .card{height:96px;border-color:#78e8c3}
+  body.paused .card img{width:128px;height:72px}
+  body.paused .card .t{font-size:14px}
+  body.paused #timer{color:#78e8c3;font-weight:bold;opacity:1}
+  body.paused #stage{opacity:.85}
   button{background:#2a2b2c;color:#ddd;border:1px solid #444;border-radius:4px;padding:3px 8px;cursor:pointer}
   #notice,#help{position:fixed;inset:0;background:#1a1b1cf2;display:none;padding:24px;box-sizing:border-box;overflow:auto}
   #notice div,#help div{max-width:520px;margin:auto;line-height:1.5}
 </style>
 <div id="wrap">
   <div id="stage"><iframe id="f" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowfullscreen></iframe></div>
+  <div id="prog"><div id="progf"></div></div>
   <div id="bar" tabindex="0">
-    <button id="bp">&#9664; prev</button><button id="bn">next &#9654;</button>
-    <button id="bo">open on X</button><button id="bs">shuffle</button>
-    <span id="cap"></span><span id="pos"></span><button id="bh">?</button>
+    <div id="row1">
+      <button id="bp">&#9664; prev</button><button id="bn">next &#9654;</button>
+      <button id="bo">open on X</button><button id="bl" title="Like on X (f)">&#9829;</button><button id="bz">&#9208; pause</button><button id="bs">shuffle</button><button id="ba">auto-advance</button>
+      <span id="cap"></span><span id="pos"></span><button id="bh">?</button>
+    </div>
+    <div id="row2">
+      <button class="card empty" id="cp"><img alt=""><span class="t"><b></b><span></span></span></button>
+      <span id="timer"></span>
+      <button class="card empty" id="cn"><img alt=""><span class="t"><b></b><span></span><em></em></span></button>
+    </div>
   </div>
 </div>
 <div id="notice"><div>
@@ -28,7 +53,8 @@
 </div></div>
 <div id="help"><div>
   <h3>Keys</h3>
-  <p>l / &rarr; next &nbsp; h / &larr; previous &nbsp; s shuffle &nbsp; o open post on X &nbsp; ? help &nbsp; q quit</p>
+  <p>l / &rarr; next &nbsp; h / &larr; previous &nbsp; s shuffle &nbsp; a auto-advance on/off &nbsp; p / Space pause and resume (freezes the countdown, shows larger previews) &nbsp; f like (opens X's like page, you confirm there) &nbsp; o open post on X &nbsp; ? help &nbsp; q quit</p>
+  <p><b>Auto-advance is timer-based.</b> X's player lives in a cross-origin iframe and slopTV does not touch it, so it cannot know when the video ends. It moves on after the post's known duration (plus a second). Clicking inside the player pauses the countdown (we cannot see X's own pause button); press p / Space or click this bar to resume from the remaining time. Posts with no known duration stay until you press next. After the last post, next wraps to the first.</p>
   <p>Keys work when this bottom bar (not the video) has focus: click it, or press Tab. Once you click inside X's player, the player keeps the keyboard.</p>
   <button id="hc">Close</button>
 </div></div>
@@ -39,19 +65,88 @@ async function api(p, post) {
   const r = await fetch(base + 'api/' + p, post ? {method: 'POST'} : {});
   return r.json();
 }
+// TIMER-BEGIN (pure logic, unit-tested with node and a fake clock)
+function makeTimer(graceMs) {
+  return {
+    total: 0, t0: 0, frozen: 0, paused: false, running: false,
+    start(durSecs, on, now) {
+      this.total = (on && durSecs > 0) ? durSecs * 1000 + graceMs : 0;
+      this.t0 = now; this.frozen = 0; this.paused = false; this.running = this.total > 0;
+    },
+    // pause freezes the elapsed time; resume continues from the remaining time (no restart)
+    pause(now) { if (this.running && !this.paused) { this.frozen = this.elapsed(now); this.paused = true; } },
+    resume(now) { if (this.running && this.paused) { this.t0 = now - this.frozen; this.paused = false; } },
+    elapsed(now) { return this.paused ? this.frozen : now - this.t0; },
+    left(now) { return Math.max(0, this.total - this.elapsed(now)); },
+    due(now) {
+      if (!this.running || this.paused || this.elapsed(now) < this.total) return false;
+      this.running = false;
+      return true;
+    },
+  };
+}
+// TIMER-END
+const GRACE = 1000;
+const T = makeTimer(GRACE);
 let st = null;
+function card(el, c) {
+  el.classList.toggle('empty', !c);
+  if (!c) return;
+  const img = el.querySelector('img');
+  if (c.poster) { if (img.dataset.src !== c.poster) { img.dataset.src = c.poster; img.loading = 'lazy'; img.referrerPolicy = 'no-referrer'; img.src = c.poster; } img.style.visibility = 'visible'; }
+  else { img.removeAttribute('src'); delete img.dataset.src; img.style.visibility = 'hidden'; }
+  el.querySelector('b').textContent = '@' + c.creator;
+  el.querySelector('.t > span').textContent = c.caption;
+  const e = el.querySelector('em'); if (e) e.textContent = c.wraps ? '\u21bb loops to start' : '';
+}
+// (re)start the countdown for the clip on screen; called when the embed has loaded and on next/prev/auto
+let P = false; // UI pause state (also shows the large previews when no timer is running)
+function arm() { setPaused(false, true); T.start(st && !st.notice ? st.duration_secs : 0, st && st.auto, Date.now()); tick(); }
+function setPaused(on, quiet) {
+  P = on;
+  if (on) T.pause(Date.now()); else T.resume(Date.now());
+  document.body.classList.toggle('paused', P);
+  $('bz').innerHTML = P ? '&#9654; resume' : '&#9208; pause';
+  if (!quiet) tick();
+}
+function pauseTimer() { setPaused(true); }
+function tick() {
+  const tm = $('timer'), pf = $('progf');
+  if (!st || st.notice) { tm.textContent = ''; pf.style.width = '0'; return; }
+  const now = Date.now();
+  const tail = !st.auto ? 'auto-advance off' : !st.duration_secs ? 'no known duration' : '';
+  if (P) { tm.textContent = '\u23f8 PAUSED' + (T.running ? ' \u2013 ' + Math.ceil(T.left(now) / 1000) + 's left' : tail ? ' \u2013 ' + tail : '') + ' (p, Space or click here to resume)'; return; }
+  if (!st.auto) { tm.textContent = 'auto-advance off'; pf.style.width = '0'; return; }
+  if (!st.duration_secs) { tm.textContent = 'no known duration: press next'; pf.style.width = '0'; return; }
+  pf.style.width = Math.min(100, T.elapsed(now) * 100 / (T.total || 1)) + '%';
+  tm.textContent = 'next in ' + Math.ceil(T.left(now) / 1000) + 's';
+  if (T.due(now)) go('next');
+}
 function show(s) {
+  const changed = !st || st.id !== s.id;
   st = s;
   $('notice').style.display = s.notice ? 'block' : 'none';
   if (!s.notice && $('f').dataset.id !== s.id) { $('f').dataset.id = s.id; $('f').src = s.embed; }
   $('cap').textContent = s.creator ? '@' + s.creator + '  ' + s.caption : '';
   $('pos').textContent = s.total ? (s.pos + 1) + '/' + s.total : '';
   $('bs').style.opacity = s.shuffle ? 1 : .5;
+  $('ba').style.opacity = s.auto ? 1 : .5;
+  card($('cp'), s.prev); card($('cn'), s.next);
   document.title = 'slopTV';
+  return changed;
 }
-const go = p => api(p, true).then(show);
+$('f').onload = () => arm();
+function go(p) { return api(p, true).then(s => { show(s); if (['auto', 'next', 'prev', 'ack'].includes(p)) arm(); }); }
+function resume() { if (P) setPaused(false); }
+$('bar').addEventListener('focus', resume);
+$('bar').addEventListener('pointerdown', resume);
+addEventListener('blur', () => setTimeout(() => { if (document.activeElement === $('f')) pauseTimer(); }, 0));
+setInterval(tick, 250);
 $('bn').onclick = () => go('next'); $('bp').onclick = () => go('prev');
-$('bo').onclick = () => go('open'); $('bs').onclick = () => go('shuffle');
+$('bo').onclick = () => go('open'); $('bl').onclick = () => go('like'); $('bs').onclick = () => go('shuffle');
+$('ba').onclick = () => go('auto');
+$('bz').onclick = () => setPaused(!P);
+$('cp').onclick = () => go('prev'); $('cn').onclick = () => go('next');
 $('ok').onclick = () => go('ack'); $('no').onclick = () => go('quit');
 $('bh').onclick = $('hc').onclick = () => { const h = $('help'); h.style.display = h.style.display === 'block' ? 'none' : 'block'; };
 addEventListener('keydown', e => {
@@ -60,11 +155,14 @@ addEventListener('keydown', e => {
   if (k === 'l' || k === 'ArrowRight' || k === 'n') go('next');
   else if (k === 'h' || k === 'ArrowLeft') go('prev');
   else if (k === 's') go('shuffle');
+  else if (k === 'a') go('auto');
+  else if (k === 'p' || k === ' ') { setPaused(!P); e.preventDefault(); }
+  else if (k === 'f') go('like');
   else if (k === 'o') go('open');
   else if (k === '?') $('bh').onclick();
   else if (k === 'Escape') $('help').style.display = 'none';
   else if (k === 'q') go('quit');
 });
-api('state').then(show).then(() => $('bar').focus());
+api('state').then(s => { show(s); arm(); $('bar').focus(); });
 setInterval(() => fetch(base + 'api/ping').catch(() => {}), 3000);
 </script>

@@ -131,6 +131,28 @@ impl Queue {
         }
         self.pending
     }
+    /// The item `prev()` would return, without moving.
+    pub fn peek_prev(&self) -> Option<usize> {
+        (0..self.hpos)
+            .rev()
+            .map(|k| self.hist[k])
+            .find(|&i| self.ok(i))
+    }
+    /// True when `next()` will start a new pass over the list (wrap-around): sequential mode at
+    /// the last item, shuffle mode once every item of the current bag has been played.
+    pub fn next_wraps(&self) -> bool {
+        let Some(cur) = self.current() else {
+            return false;
+        };
+        if self.hist[self.hpos + 1..].iter().any(|&i| self.ok(i)) {
+            return false;
+        }
+        if self.shuffle {
+            !self.bag.iter().any(|&i| self.ok(i) && i != cur)
+        } else {
+            !self.pool.iter().any(|&i| i > cur && !self.bad.contains(&i))
+        }
+    }
     pub fn next(&mut self) -> Option<usize> {
         let p = self.peek_next()?;
         if self.hpos + 1 < self.hist.len() {
@@ -189,6 +211,26 @@ mod tests {
         // second bag starts without immediately repeating the last clip
         let last = q.current().unwrap();
         assert_ne!(q.next().unwrap(), last);
+    }
+    #[test]
+    fn wrap_flag_and_peek_prev() {
+        let mut q = Queue::new(3, false, 1);
+        assert!(!q.next_wraps(), "nothing playing yet");
+        assert_eq!(q.next(), Some(0));
+        assert_eq!(q.peek_prev(), None);
+        assert!(!q.next_wraps());
+        q.next();
+        assert_eq!(q.peek_prev(), Some(0));
+        q.next();
+        assert!(q.next_wraps(), "last item: next loops to the start");
+        assert_eq!(q.peek_next(), Some(0));
+        assert_eq!(q.next(), Some(0));
+        assert!(!q.next_wraps());
+        let mut s = Queue::new(4, true, 7);
+        for k in 0..4 {
+            s.next();
+            assert_eq!(s.next_wraps(), k == 3, "shuffle wraps after the whole bag");
+        }
     }
     #[test]
     fn sequential_wraps() {

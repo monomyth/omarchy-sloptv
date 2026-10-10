@@ -51,11 +51,22 @@ Keys work while the bottom bar of the window has focus (it does at start; click 
 | l / Right / n | next post |
 | h / Left | previous post |
 | s | shuffle on/off (default on) |
+| a | auto-advance on/off (timer-based, see below) |
+| p / Space (or the pause button) | pause / resume: freezes the auto-advance countdown, shows a clear PAUSED label and enlarges the previous/next cards |
+| f (or the heart button) | like: opens `https://x.com/intent/like?tweet_id=<id>` via `xdg-open`; you confirm on X with your own login |
 | o | open the post on X in your default browser (`xdg-open`); also your fallback for a post that won't play |
 | ? / Esc | help / close help |
 | q | quit |
 
-`o` opens the post's page on X; public posts open without an X account, but X may show a login wall or limit what is visible when signed out. The embedded player itself needs no account. slopTV starts Chromium with `--autoplay-policy=no-user-gesture-required`, but if a video does not start, click it once. There is no search or poster grid in this mode. The mpv-only keys are listed under Advanced.
+`o` opens the post's page on X; public posts open without an X account, but X may show a login wall or limit what is visible when signed out. The embedded player itself needs no account. slopTV starts Chromium with `--autoplay-policy=no-user-gesture-required`, but if a video does not start, click it once. There is no search or poster grid in this mode.
+
+**Autoplay next, no looping.** When a video is over, slopTV moves to the next one and only wraps to the first after the end of the whole list (in shuffle mode, after every post of the current shuffle round). This is **timer-based in embed mode**, because X's player runs in a cross-origin iframe whose events (such as "ended") are not accessible to us, and slopTV does not inject into or modify the embed. Every record in the live `videos.json` carries `duration_ms` (checked: 594 of 594, from 4 s to 17 min), and the countdown for each clip is that clip's own duration, rounded up, plus 1 s for loading. It starts when the embed has finished loading in the window, and it restarts on next, previous, a preview-card click and toggling `a`. A thin progress line and a "next in Ns" label show it. A record without a duration waits for you (press next), or uses `embed_default_secs` if you set it. Because it is a timer, it can be off by a few seconds when the embed starts slowly, autoplay needs a click, or you pause or scrub the video itself.
+
+**Pause.** `p` / Space / the pause button freezes the countdown; resume continues from the remaining time, not from the full duration. While paused a "PAUSED" label shows and the previous/next cards get larger. Clicking inside X's player also pauses our countdown and shows the larger previews, because that is the only sign we get that you are interacting with X's player. **Limit:** we cannot observe X's own pause, seek or end events, so pausing the video with X's own controls does not pause our timer; click inside the player (which does) or press `p`. Resume with `p` / Space, the button, or a click on the bottom bar.
+
+**Previous / next cards.** Under the player, small cards show the previous and next post (poster thumbnail, @creator, caption snippet) and are clickable. At the end of the list the next card shows "loops to start". The thumbnails are plain `<img>` tags loaded lazily from `pbs.twimg.com`, and only after you accepted the privacy notice.
+
+**Like.** `f` or the heart button opens X's like page for the current post in your default browser. slopTV uses no API keys, reads no cookies and automates nothing on X; you confirm the like there. Numeric post ids only. The mpv-only keys are listed under Advanced.
 
 ## Data source
 
@@ -87,7 +98,7 @@ Fallbacks, in order: the on-disk copy of the last good feed; the embedded `<scri
 
 ## Config
 
-Copy `config.example.toml` to `~/.config/slop-tv/config.toml` (all keys optional). Embed mode uses `source_url`, `fallback_url` and `shuffle`; the other keys belong to the raw mode.
+Copy `config.example.toml` to `~/.config/slop-tv/config.toml` (all keys optional). Embed mode uses `source_url`, `fallback_url`, `shuffle`, `auto_advance` (default true) and `embed_default_secs` (default 0: posts without a known duration wait for you); the other keys belong to the raw mode.
 
 CLI: `slop-tv [--source URL|PATH] [--config FILE] [--cache-dir DIR] [--check] [--reset-notice]`. `--check` fetches and parses the feed and exits. `--reset-notice` shows the privacy notice again. `SLOPTV_BIN=/path/to/slop-tv` makes the launcher use that binary instead of building.
 
@@ -110,6 +121,8 @@ Optional: `packaging/slopTV.desktop` is a launcher entry for Walker (copy it to 
 
 - `jon-slop.grok.me/videos.json` (feed, ETag polling; plus the page itself as a last-resort fallback), fetched by the Rust program.
 - `platform.twitter.com/embed/Tweet.html?id=<id>&dnt=true` and whatever X's player then loads (x.com, X's scripts, `video.twimg.com`, `pbs.twimg.com`, possibly cookies in slopTV's private Chromium profile), loaded by Chromium inside the official embed. This is X's own player and X decides what it fetches.
+- `pbs.twimg.com`: poster thumbnails for the previous/next cards, two `<img>` tags loaded lazily by Chromium on our page (not by the Rust program), only after the privacy notice is accepted. Posters come from the feed's `poster` field and are only used if they are on `pbs.twimg.com`.
+- `x.com/intent/like?tweet_id=<id>`, only when you press `f` or the heart: opened in your default browser with `xdg-open`, never fetched by slopTV.
 - `127.0.0.1` on a random port, with a random token in the URL, serves slopTV's own local page. It is not reachable from other machines.
 
 slopTV loads no X API and no X post pages itself, injects no CSS or JS into the embed, and sends no cookies or auth of its own. The page is ours; the iframe inside it is X's, unmodified.
@@ -135,7 +148,6 @@ Vim keys and arrows. The first keypress un-mutes (audio starts muted).
 | j / Down | volume down | focus down |
 | m | mute | mute |
 | s | shuffle on/off (default on) | same |
-| r | loop clip / advance at end (default loop) | same |
 | n | next clip (always) | next clip |
 | f | fullscreen | fullscreen |
 | i | credit card (right third); again or Esc closes | - |
@@ -154,9 +166,9 @@ Vim keys and arrows. The first keypress un-mutes (audio starts muted).
 Search: press `/`, type creator, handle or caption words (all must match), Enter to stop typing, Esc to clear.
 
 
-Raw-mode config keys: `volume`, `loop_clip`, `fullscreen`, `cache_max_mb`, `poll_minutes`, `font`, `hwdec`, `vo`, `ao`, `gpu_context`; CLI: `--windowed`, `--geometry WxH`; `SLOPTV_MPV_LOG=/path` writes a verbose mpv log. Raw mode caches only the feed and small grid tiles under `~/.cache/slop-tv/`.
+Raw-mode config keys: `volume`, `fullscreen`, `cache_max_mb`, `poll_minutes`, `font`, `hwdec`, `vo`, `ao`, `gpu_context`; CLI: `--windowed`, `--geometry WxH`; `SLOPTV_MPV_LOG=/path` writes a verbose mpv log. Raw mode caches only the feed and small grid tiles under `~/.cache/slop-tv/`.
 
-Playback streams each clip's mp4 URL straight into libmpv (`loadfile https://video.twimg.com/...mp4`), as the jon-slop.grok.me gallery's `<video src=mp4>` does. mpv's demuxer cache does the buffering (64 MiB ahead, 20 s read-ahead, 64 MiB kept behind). The kept-behind buffer is what lets `loop-file=inf` re-play a clip from memory: a short clip is fetched once, not once per loop (checked: an 8 s, 776 KB clip looped for 20 s made 3 range requests in total). Clips bigger than the 64 MiB cache window are re-read from the network on each loop. There is no next-clip prefetch while streaming, so `n`/`l` open a fresh connection (in a live Xvfb test the first frame took several seconds on one clip).
+Playback streams each clip's mp4 URL straight into libmpv (`loadfile https://video.twimg.com/...mp4`), as the jon-slop.grok.me gallery's `<video src=mp4>` does. mpv's demuxer cache does the buffering (64 MiB ahead, 20 s read-ahead). Raw mode never loops a clip: `loop-file` is off, and at end-of-file it advances to the next clip, wrapping to the first only after the end of the whole list (the old `r` loop key and `loop_clip` option are gone). There is no next-clip prefetch while streaming, so `n`/`l` open a fresh connection (in a live Xvfb test the first frame took several seconds on one clip).
 
 The gallery's fallback to X's embedded player is a web iframe and cannot be done in mpv. If a clip fails for good, press `o` to open the post in your browser.
 
@@ -179,7 +191,7 @@ bash ~/.config/omarchy/plugins/io.github.monomyth.sloptv/scripts/uninstall.sh
 cargo fmt --check && cargo clippy --all-targets && cargo test
 ```
 
-45 unit tests use the small fixtures in `tests/fixtures/` (20 records of the live feed, and a trimmed page with the embedded data block for 10). CI runs the same three commands on ubuntu-latest with `libmpv-dev`. The `raw-mpv` cargo feature (on by default) pulls in libmpv2 and image decoding; `cargo build --no-default-features` builds the embed-only controller without libmpv (`install.sh` falls back to that automatically when libmpv is missing). I chose a feature over a separate crate so the default binary and `install.sh` stay a single build.
+55 unit tests use the small fixtures in `tests/fixtures/` (20 records of the live feed, and a trimmed page with the embedded data block for 10). The timer tests run the page's pure timer code under `node` with a fake clock and are skipped when node is not installed. CI runs the same three commands on ubuntu-latest with `libmpv-dev`. The `raw-mpv` cargo feature (on by default) pulls in libmpv2 and image decoding; `cargo build --no-default-features` builds the embed-only controller without libmpv (`install.sh` falls back to that automatically when libmpv is missing). I chose a feature over a separate crate so the default binary and `install.sh` stay a single build.
 
 ## Not yet verified on Hyprland
 
