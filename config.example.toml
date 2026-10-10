@@ -1,0 +1,14 @@
+# ~/.config/slop-tv/config.toml  (all keys optional; these are the defaults)
+source_url   = "https://jon-slop.grok.me/videos.json"  # or a local path / file:// URL for development
+fallback_url = "https://jon-slop.grok.me"              # last resort: page with embedded <script id="data"> JSON; "" disables
+volume       = 60        # 0-130, applied at start (audio stays muted until the first keypress)
+shuffle      = true
+loop_clip    = true      # true: loop the clip until `n`; false: advance at the end
+fullscreen   = true
+cache_max_mb = 2048      # cap for clips + posters + tiles in ~/.cache/slop-tv
+poll_minutes = 60        # feed re-check interval (ETag, expect 304)
+font         = "sans-serif"
+hwdec        = "auto-safe"
+# vo = ""            # mpv video output override (default: gpu)
+# ao = ""            # mpv audio output override
+# gpu_context = ""   # e.g. "wayland" or "x11egl"; empty = mpv auto

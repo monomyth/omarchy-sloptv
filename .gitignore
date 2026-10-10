@@ -1,0 +1,12 @@
+# Rust build output
+target/
+*.log
+.DS_Store
+*.swp
+# Cache paths (if ever linked/copied into tree)
+.cache/
+cache/
+# Local preview assets (optional)
+preview-src.png
+# Full feed snapshots stay out of the repo; tests use tests/fixtures/
+sample/

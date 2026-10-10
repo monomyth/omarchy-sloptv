@@ -1,0 +1,13 @@
+-- slopTV — paste into ~/.config/hypr/bindings.lua
+-- Starts the player if it is not running, focuses it if it is in the background,
+-- closes it if it is already focused. First run builds the binary (a few minutes).
+
+local function sloptv_open()
+  return function()
+    local home = os.getenv("HOME") or ""
+    local script = home .. "/.config/omarchy/plugins/io.github.monomyth.sloptv/scripts/open.sh"
+    hl.dispatch(hl.dsp.exec_cmd("bash " .. script .. " toggle"))
+  end
+end
+
+o.bind("SUPER + SHIFT + CTRL + T", "slopTV", sloptv_open(), { release = true })

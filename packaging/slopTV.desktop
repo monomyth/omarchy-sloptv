@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=slopTV
+GenericName=Video player
+Comment=Slop Cannon videos, keyboard driven
+Exec=sh -c 'bash "$HOME/.config/omarchy/plugins/io.github.monomyth.sloptv/scripts/open.sh" toggle'
+Icon=video-display
+Terminal=false
+Categories=AudioVideo;Video;Player;
+Keywords=slop;video;tv;grok;
+StartupWMClass=slop-tv
