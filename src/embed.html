@@ -1,62 +1,42 @@
 <!doctype html>
 <meta charset="utf-8">
+<meta name="color-scheme" content="dark">
 <title>slopTV</title>
 <style>
-  html,body{margin:0;height:100%;background:#1a1b1c;color:#ddd;font:14px sans-serif}
-  #wrap{display:flex;flex-direction:column;height:100%}
-  #stage{flex:1;min-height:0;display:flex;justify-content:center}
-  iframe{border:0;width:100%;max-width:560px;height:100%;background:#1a1b1c}
-  #prog{height:3px;background:#2a2b2c}#progf{height:100%;width:0;background:#78e8c3}
-  #bar{padding:6px 10px;border-top:1px solid #333;display:flex;flex-direction:column;gap:6px;outline:none}
-  #row1,#row2{display:flex;gap:8px;align-items:center}
-  #row2{justify-content:space-between}
-  #cap{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;opacity:.8}
-  #timer{opacity:.75;font-size:12px;white-space:nowrap}
-  .card{flex:1;min-width:0;max-width:50%;display:flex;gap:8px;align-items:center;text-align:left;padding:4px;height:46px;overflow:hidden}
-  .card.empty{visibility:hidden}
-  .card img{width:64px;height:36px;object-fit:cover;border-radius:3px;background:#222;flex:none}
-  .card .t{min-width:0;font-size:12px;line-height:1.25}
-  .card b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .card span{display:block;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .card em{font-style:normal;color:#78e8c3;font-size:11px}
-  #cn{flex-direction:row-reverse;text-align:right}
-  body.paused .card{height:96px;border-color:#78e8c3}
-  body.paused .card img{width:128px;height:72px}
-  body.paused .card .t{font-size:14px}
-  body.paused #timer{color:#78e8c3;font-weight:bold;opacity:1}
-  body.paused #stage{opacity:.85}
-  button{background:#2a2b2c;color:#ddd;border:1px solid #444;border-radius:4px;padding:3px 8px;cursor:pointer}
-  #notice,#help{position:fixed;inset:0;background:#1a1b1cf2;display:none;padding:24px;box-sizing:border-box;overflow:auto}
-  #notice div,#help div{max-width:520px;margin:auto;line-height:1.5}
+  :root{color-scheme:dark;--fg:#d8d8d8;--dim:#8a8a8a;--accent:#78e8c3}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:#000;color:var(--fg);font:13px/1.35 system-ui,sans-serif;overflow:hidden}
+  body.idle{cursor:none}
+  #stage{position:fixed;inset:0;display:flex;justify-content:center}
+  iframe{border:0;width:100%;max-width:550px;height:100%;background:#000;color-scheme:dark}
+  #prog{position:fixed;left:0;bottom:0;height:2px;width:0;background:var(--accent);opacity:.7;pointer-events:none}
+  .card{position:fixed;bottom:14px;width:min(270px,28vw);display:flex;gap:9px;align-items:center;padding:7px;border:0;border-radius:10px;
+    background:rgba(18,18,20,.72);color:var(--fg);font:inherit;text-align:left;cursor:pointer;
+    backdrop-filter:blur(6px);opacity:0;transform:translateY(6px);pointer-events:none;transition:opacity .25s,transform .25s,background .15s}
+  body.ui .card:not(.empty){opacity:1;transform:none;pointer-events:auto}
+  body.ui .card:not(.empty):hover{background:rgba(34,34,38,.88)}
+  #cp{left:14px}#cn{right:14px;flex-direction:row-reverse;text-align:right}
+  .card img{width:72px;height:41px;object-fit:cover;border-radius:6px;background:#1c1c1e;flex:none}
+  .card .t{min-width:0;font-size:12px}
+  .card b{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .card .c{display:block;color:var(--dim);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .card em{display:block;font-style:normal;color:var(--accent);font-size:11px}
+  #toast{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);padding:5px 12px;border-radius:999px;background:rgba(18,18,20,.8);
+    color:var(--fg);font-size:12px;opacity:0;transition:opacity .25s;pointer-events:none;white-space:nowrap}
+  #toast.on{opacity:1}
+  #notice{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:#000}
+  #notice div{max-width:440px;padding:16px 18px;border:1px solid #2a2a2e;border-radius:12px;color:var(--dim);font-size:12.5px;line-height:1.5}
+  #notice button{margin-top:10px;margin-right:6px;background:#1c1c1e;color:var(--fg);border:1px solid #333;border-radius:8px;padding:5px 12px;cursor:pointer;font:inherit}
+  #notice button:hover{border-color:var(--accent)}
 </style>
-<div id="wrap">
-  <div id="stage"><iframe id="f" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowfullscreen></iframe></div>
-  <div id="prog"><div id="progf"></div></div>
-  <div id="bar" tabindex="0">
-    <div id="row1">
-      <button id="bp">&#9664; prev</button><button id="bn">next &#9654;</button>
-      <button id="bo">open on X</button><button id="bl" title="Like on X (f)">&#9829;</button><button id="bz">&#9208; pause</button><button id="bs">shuffle</button><button id="ba">auto-advance</button>
-      <span id="cap"></span><span id="pos"></span><button id="bh">?</button>
-    </div>
-    <div id="row2">
-      <button class="card empty" id="cp"><img alt=""><span class="t"><b></b><span></span></span></button>
-      <span id="timer"></span>
-      <button class="card empty" id="cn"><img alt=""><span class="t"><b></b><span></span><em></em></span></button>
-    </div>
-  </div>
-</div>
+<div id="stage"><iframe id="f" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowfullscreen></iframe></div>
+<div id="prog"></div>
+<button class="card empty" id="cp"><img alt=""><span class="t"><b></b><span class="c"></span></span></button>
+<button class="card empty" id="cn"><img alt=""><span class="t"><b></b><span class="c"></span><em></em></span></button>
+<div id="toast"></div>
 <div id="notice"><div>
-  <h3>Before the first video</h3>
-  <p>slopTV plays each post in <b>X's own embedded player</b>, shown unmodified inside this window. That means this window loads scripts and media from X (platform.twitter.com, x.com and X's CDNs) and X may set cookies in this app's own private browser profile (not your normal browser profile). slopTV asks X not to personalise from your activity (<code>dnt=true</code>), but it does not control what X's player does.</p>
-  <p>Autoplay may need one click on the video.</p>
-  <button id="ok">OK, continue</button> <button id="no">Quit</button>
-</div></div>
-<div id="help"><div>
-  <h3>Keys</h3>
-  <p>l / &rarr; next &nbsp; h / &larr; previous &nbsp; s shuffle &nbsp; a auto-advance on/off &nbsp; p / Space pause and resume (freezes the countdown, shows larger previews) &nbsp; f like (opens X's like page, you confirm there) &nbsp; o open post on X &nbsp; ? help &nbsp; q quit</p>
-  <p><b>Auto-advance is timer-based.</b> X's player lives in a cross-origin iframe and slopTV does not touch it, so it cannot know when the video ends. It moves on after the post's known duration (plus a second). Clicking inside the player pauses the countdown (we cannot see X's own pause button); press p / Space or click this bar to resume from the remaining time. Posts with no known duration stay until you press next. After the last post, next wraps to the first.</p>
-  <p>Keys work when this bottom bar (not the video) has focus: click it, or press Tab. Once you click inside X's player, the player keeps the keyboard.</p>
-  <button id="hc">Close</button>
+  This plays each post in X's own embedded player, unmodified. The window loads X's scripts and media, and X may set cookies in slopTV's private browser profile (not your normal one). It asks X not to personalise (dnt=true) but X's player decides the rest.
+  <br><button id="ok">OK</button><button id="no">Quit</button>
 </div></div>
 <script>
 const base = location.pathname.replace(/[^\/]*$/, '');
@@ -88,7 +68,12 @@ function makeTimer(graceMs) {
 // TIMER-END
 const GRACE = 1000;
 const T = makeTimer(GRACE);
-let st = null;
+let st = null, P = false, uiUntil = 0, idleT = 0, toastT = 0;
+function toast(msg, keep) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('on');
+  clearTimeout(toastT); if (!keep) toastT = setTimeout(() => t.classList.remove('on'), 1800);
+}
+function showUi(ms) { uiUntil = Math.max(uiUntil, Date.now() + ms); document.body.classList.add('ui'); document.body.classList.remove('idle'); }
 function card(el, c) {
   el.classList.toggle('empty', !c);
   if (!c) return;
@@ -96,73 +81,60 @@ function card(el, c) {
   if (c.poster) { if (img.dataset.src !== c.poster) { img.dataset.src = c.poster; img.loading = 'lazy'; img.referrerPolicy = 'no-referrer'; img.src = c.poster; } img.style.visibility = 'visible'; }
   else { img.removeAttribute('src'); delete img.dataset.src; img.style.visibility = 'hidden'; }
   el.querySelector('b').textContent = '@' + c.creator;
-  el.querySelector('.t > span').textContent = c.caption;
+  el.querySelector('.c').textContent = c.caption;
   const e = el.querySelector('em'); if (e) e.textContent = c.wraps ? '\u21bb loops to start' : '';
 }
 // (re)start the countdown for the clip on screen; called when the embed has loaded and on next/prev/auto
-let P = false; // UI pause state (also shows the large previews when no timer is running)
 function arm() { setPaused(false, true); T.start(st && !st.notice ? st.duration_secs : 0, st && st.auto, Date.now()); tick(); }
 function setPaused(on, quiet) {
   P = on;
   if (on) T.pause(Date.now()); else T.resume(Date.now());
-  document.body.classList.toggle('paused', P);
-  $('bz').innerHTML = P ? '&#9654; resume' : '&#9208; pause';
-  if (!quiet) tick();
+  if (!quiet) { if (on) { toast('paused', true); showUi(1e9); } else { $('toast').classList.remove('on'); uiUntil = Date.now() + 1500; } }
+  tick();
 }
-function pauseTimer() { setPaused(true); }
 function tick() {
-  const tm = $('timer'), pf = $('progf');
-  if (!st || st.notice) { tm.textContent = ''; pf.style.width = '0'; return; }
+  const pf = $('prog');
   const now = Date.now();
-  const tail = !st.auto ? 'auto-advance off' : !st.duration_secs ? 'no known duration' : '';
-  if (P) { tm.textContent = '\u23f8 PAUSED' + (T.running ? ' \u2013 ' + Math.ceil(T.left(now) / 1000) + 's left' : tail ? ' \u2013 ' + tail : '') + ' (p, Space or click here to resume)'; return; }
-  if (!st.auto) { tm.textContent = 'auto-advance off'; pf.style.width = '0'; return; }
-  if (!st.duration_secs) { tm.textContent = 'no known duration: press next'; pf.style.width = '0'; return; }
+  if (document.body.classList.contains('ui') && !P && now > uiUntil) document.body.classList.remove('ui');
+  if (!P && now - idleT > 3000) document.body.classList.add('idle');
+  if (!st || st.notice || !st.auto || !st.duration_secs) { pf.style.width = '0'; return; }
   pf.style.width = Math.min(100, T.elapsed(now) * 100 / (T.total || 1)) + '%';
-  tm.textContent = 'next in ' + Math.ceil(T.left(now) / 1000) + 's';
-  if (T.due(now)) go('next');
+  if (!P && T.due(now)) go('next');
 }
 function show(s) {
   const changed = !st || st.id !== s.id;
   st = s;
-  $('notice').style.display = s.notice ? 'block' : 'none';
+  $('notice').style.display = s.notice ? 'flex' : 'none';
   if (!s.notice && $('f').dataset.id !== s.id) { $('f').dataset.id = s.id; $('f').src = s.embed; }
-  $('cap').textContent = s.creator ? '@' + s.creator + '  ' + s.caption : '';
-  $('pos').textContent = s.total ? (s.pos + 1) + '/' + s.total : '';
-  $('bs').style.opacity = s.shuffle ? 1 : .5;
-  $('ba').style.opacity = s.auto ? 1 : .5;
   card($('cp'), s.prev); card($('cn'), s.next);
-  document.title = 'slopTV';
+  if (changed && !s.notice) showUi(3500);
   return changed;
 }
 $('f').onload = () => arm();
-function go(p) { return api(p, true).then(s => { show(s); if (['auto', 'next', 'prev', 'ack'].includes(p)) arm(); }); }
-function resume() { if (P) setPaused(false); }
-$('bar').addEventListener('focus', resume);
-$('bar').addEventListener('pointerdown', resume);
-addEventListener('blur', () => setTimeout(() => { if (document.activeElement === $('f')) pauseTimer(); }, 0));
+function go(p) { return api(p, true).then(s => { show(s); if (['auto', 'next', 'prev', 'ack'].includes(p)) arm(); return s; }); }
+addEventListener('blur', () => setTimeout(() => { if (document.activeElement === $('f')) setPaused(true); }, 0));
+addEventListener('mousemove', () => { idleT = Date.now(); showUi(2200); });
+addEventListener('focus', () => { if (P) setPaused(false); });
 setInterval(tick, 250);
-$('bn').onclick = () => go('next'); $('bp').onclick = () => go('prev');
-$('bo').onclick = () => go('open'); $('bl').onclick = () => go('like'); $('bs').onclick = () => go('shuffle');
-$('ba').onclick = () => go('auto');
-$('bz').onclick = () => setPaused(!P);
 $('cp').onclick = () => go('prev'); $('cn').onclick = () => go('next');
 $('ok').onclick = () => go('ack'); $('no').onclick = () => go('quit');
-$('bh').onclick = $('hc').onclick = () => { const h = $('help'); h.style.display = h.style.display === 'block' ? 'none' : 'block'; };
+function fullscreen() {
+  if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => {});
+}
 addEventListener('keydown', e => {
   if (e.ctrlKey || e.altKey || e.metaKey) return;
   const k = e.key;
+  idleT = Date.now();
   if (k === 'l' || k === 'ArrowRight' || k === 'n') go('next');
   else if (k === 'h' || k === 'ArrowLeft') go('prev');
-  else if (k === 's') go('shuffle');
-  else if (k === 'a') go('auto');
+  else if (k === 's') go('shuffle').then(s => toast(s.shuffle ? 'shuffle on' : 'shuffle off'));
+  else if (k === 'a') go('auto').then(s => toast(s.auto ? 'auto-advance on' : 'auto-advance off'));
   else if (k === 'p' || k === ' ') { setPaused(!P); e.preventDefault(); }
-  else if (k === 'f') go('like');
-  else if (k === 'o') go('open');
-  else if (k === '?') $('bh').onclick();
-  else if (k === 'Escape') $('help').style.display = 'none';
+  else if (k === 'f') { go('like'); toast('opening like page on X'); }
+  else if (k === 'o') { go('open'); toast('opening post on X'); }
+  else if (k === 'w') fullscreen();
   else if (k === 'q') go('quit');
 });
-api('state').then(s => { show(s); arm(); $('bar').focus(); });
+api('state').then(s => { show(s); arm(); });
 setInterval(() => fetch(base + 'api/ping').catch(() => {}), 3000);
 </script>

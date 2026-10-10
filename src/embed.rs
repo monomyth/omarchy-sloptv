@@ -31,7 +31,7 @@ pub fn embed_url(id: &str) -> Option<String> {
         return None;
     }
     Some(format!(
-        "https://platform.twitter.com/embed/Tweet.html?id={id}&dnt=true"
+        "https://platform.twitter.com/embed/Tweet.html?id={id}&dnt=true&theme=dark"
     ))
 }
 
@@ -504,7 +504,7 @@ mod tests {
     fn embed_url_is_official_and_dnt() {
         assert_eq!(
             embed_url("2108935501126271427").unwrap(),
-            "https://platform.twitter.com/embed/Tweet.html?id=2108935501126271427&dnt=true"
+            "https://platform.twitter.com/embed/Tweet.html?id=2108935501126271427&dnt=true&theme=dark"
         );
         assert!(embed_url("").is_none());
         assert!(embed_url("12&x=1").is_none());
@@ -550,7 +550,7 @@ mod tests {
             serde_json::from_str(&c.handle("GET", "/t/tok/api/state").body).unwrap();
         assert_eq!(
             st["embed"],
-            "https://platform.twitter.com/embed/Tweet.html?id=2&dnt=true"
+            "https://platform.twitter.com/embed/Tweet.html?id=2&dnt=true&theme=dark"
         );
     }
     #[test]
@@ -714,6 +714,17 @@ mod tests {
         if let Some(r) = r {
             assert_eq!(r, "7000 7000 false 7000 false true 9000 false false");
         }
+    }
+    #[test]
+    fn page_keys_w_fullscreen_f_like_and_no_chrome() {
+        assert!(PAGE.contains("k === 'w') fullscreen()"));
+        assert!(PAGE.contains("k === 'f') { go('like')"), "f is Like");
+        assert!(!PAGE.contains("F11") && !PAGE.contains("k === 'f') fullscreen"));
+        assert!(PAGE.contains("theme=dark") || embed_url("1").unwrap().contains("theme=dark"));
+        // no visible controls or help panel in the page: only the two cards and the notice buttons
+        assert_eq!(PAGE.matches("<button").count(), 4);
+        assert!(!PAGE.contains("id=\"help\"") && !PAGE.contains("id=\"bar\""));
+        assert!(PAGE.contains("height:2px"), "thin progress line");
     }
     #[test]
     fn page_loads_no_x_scripts_and_no_injection() {

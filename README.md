@@ -2,9 +2,9 @@
 
 Keyboard-first Slop Cannon player for [Omarchy](https://omarchy.org/) Quattro.
 
-One shortcut opens a Chromium app window (window class `slop-tv`) that plays each post in **X's own official embedded player**, unmodified, for the feed curated at [jon-slop.grok.me](https://jon-slop.grok.me). A small Rust program is the controller: it reads the feed and keeps the queue (next, previous, shuffle, open on X). The approach mirrors omarchy-meshpeek: `chromium --app` on a local launcher page.
+One shortcut opens a Chromium app window (window class `slop-tv`) that plays each post in **X's own official embedded player**, unmodified, for the feed curated at [jon-slop.grok.me](https://jon-slop.grok.me). A small Rust program is the controller: it reads the feed and keeps the queue (next, previous, shuffle, like, open on X). The window shows nothing but the embed unless you move the mouse. The approach mirrors omarchy-meshpeek: `chromium --app` on a local launcher page.
 
-The first time you run it, slopTV shows a one-time privacy notice: the embed is X's own player, loads X scripts and may set X cookies (in slopTV's own private Chromium profile, not your normal one). The embed URL uses `dnt=true`. Nothing is injected into the embed and slopTV never touches cookies.
+The first time you run it, slopTV shows a one-time privacy notice: the embed is X's own player, loads X scripts and may set X cookies (in slopTV's own private Chromium profile, not your normal one). The embed URL uses `dnt=true&theme=dark`. Nothing is injected into the embed and slopTV never touches cookies.
 
 ## Install
 
@@ -20,7 +20,7 @@ Then run the setup script, which builds the app and adds the **Super+Shift+Ctrl+
 bash ~/.config/omarchy/plugins/io.github.monomyth.sloptv/scripts/install.sh
 ```
 
-When it finishes, `install.sh` prints a short how-to-run summary: the keybind, the bar icon (right side, if the widget is enabled), the in-app keys (`?` help, `l`/`h` next/previous, `o` open on X, `q` quit) and the path to `uninstall.sh`.
+When it finishes, `install.sh` prints a short how-to-run summary: the keybind, the bar icon (right side, if the widget is enabled), the in-app keys (`l`/`h` next/previous, `p` pause, `f` like, `o` open on X, `w` fullscreen, `q` quit) and the path to `uninstall.sh`.
 
 Or skip the keybind step and paste `bindings.hypr.lua.example` into `~/.config/hypr/bindings.lua` yourself.
 
@@ -44,29 +44,33 @@ sudo pacman -S chromium rust pkgconf jq xdg-utils   # + mpv for the optional raw
 
 ## In the player
 
-Keys work while the bottom bar of the window has focus (it does at start; click it or press Tab to get it back). Once you click inside X's player, the player keeps the keyboard, so use the on-screen buttons or click the bar again.
+The window is just X's embed, centered on a dark background (`theme=dark` is an official embed parameter). Nothing else is drawn by default except a 2 px progress line along the bottom edge.
 
 | key | action |
 |---|---|
 | l / Right / n | next post |
 | h / Left | previous post |
-| s | shuffle on/off (default on) |
+| p / Space | pause / resume (freezes the auto-advance countdown) |
 | a | auto-advance on/off (timer-based, see below) |
-| p / Space (or the pause button) | pause / resume: freezes the auto-advance countdown, shows a clear PAUSED label and enlarges the previous/next cards |
-| f (or the heart button) | like: opens `https://x.com/intent/like?tweet_id=<id>` via `xdg-open`; you confirm on X with your own login |
+| s | shuffle on/off (default on) |
+| f | like: opens `https://x.com/intent/like?tweet_id=<id>` via `xdg-open`; you confirm on X with your own login |
 | o | open the post on X in your default browser (`xdg-open`); also your fallback for a post that won't play |
-| ? / Esc | help / close help |
+| w | toggle window fullscreen (`f` is Like, not fullscreen) |
 | q | quit |
 
-`o` opens the post's page on X; public posts open without an X account, but X may show a login wall or limit what is visible when signed out. The embedded player itself needs no account. slopTV starts Chromium with `--autoplay-policy=no-user-gesture-required`, but if a video does not start, click it once. There is no search or poster grid in this mode.
+Keys work while our page has focus. Once you click inside X's player the player keeps the keyboard; click the dark background beside it to get the keys back (that also resumes a pause caused by the click). Small toasts confirm shuffle / auto-advance / like / open; there is no help panel.
 
-**Autoplay next, no looping.** When a video is over, slopTV moves to the next one and only wraps to the first after the end of the whole list (in shuffle mode, after every post of the current shuffle round). This is **timer-based in embed mode**, because X's player runs in a cross-origin iframe whose events (such as "ended") are not accessible to us, and slopTV does not inject into or modify the embed. Every record in the live `videos.json` carries `duration_ms` (checked: 594 of 594, from 4 s to 17 min), and the countdown for each clip is that clip's own duration, rounded up, plus 1 s for loading. It starts when the embed has finished loading in the window, and it restarts on next, previous, a preview-card click and toggling `a`. A thin progress line and a "next in Ns" label show it. A record without a duration waits for you (press next), or uses `embed_default_secs` if you set it. Because it is a timer, it can be off by a few seconds when the embed starts slowly, autoplay needs a click, or you pause or scrub the video itself.
+**Previous / next cards.** Two small semi-transparent cards (thumbnail, @creator, short caption) sit in the bottom corners. They are visible only while the mouse moves, while paused, and for a few seconds when a new post appears, then fade out. Click one to jump. At the end of the list the next card says "loops to start". The thumbnails are plain `<img>` tags loaded from `pbs.twimg.com` (lazily, only after you accepted the privacy notice).
 
-**Pause.** `p` / Space / the pause button freezes the countdown; resume continues from the remaining time, not from the full duration. While paused a "PAUSED" label shows and the previous/next cards get larger. Clicking inside X's player also pauses our countdown and shows the larger previews, because that is the only sign we get that you are interacting with X's player. **Limit:** we cannot observe X's own pause, seek or end events, so pausing the video with X's own controls does not pause our timer; click inside the player (which does) or press `p`. Resume with `p` / Space, the button, or a click on the bottom bar.
+**Privacy notice.** The first time, a small box asks you to accept that this is X's own player (X scripts, possible X cookies in slopTV's private Chromium profile, `dnt=true`) before anything from X is loaded. After OK it never shows again (`--reset-notice` brings it back).
 
-**Previous / next cards.** Under the player, small cards show the previous and next post (poster thumbnail, @creator, caption snippet) and are clickable. At the end of the list the next card shows "loops to start". The thumbnails are plain `<img>` tags loaded lazily from `pbs.twimg.com`, and only after you accepted the privacy notice.
+`o` opens the post's page on X; public posts open without an X account, but X may show a login wall or limit what is visible when signed out. The embedded player itself needs no account. slopTV starts Chromium with `--autoplay-policy=no-user-gesture-required`, but if a video does not start, click it once. The embed is X's own layout, so it can show its own scrollbar for long posts. There is no search or poster grid in this mode.
 
-**Like.** `f` or the heart button opens X's like page for the current post in your default browser. slopTV uses no API keys, reads no cookies and automates nothing on X; you confirm the like there. Numeric post ids only. The mpv-only keys are listed under Advanced.
+**Autoplay next, no looping.** When a video is over, slopTV moves to the next one and only wraps to the first after the end of the whole list (in shuffle mode, after every post of the current shuffle round). This is **timer-based in embed mode**, because X's player runs in a cross-origin iframe whose events (such as "ended") are not accessible to us, and slopTV does not inject into or modify the embed. Every record in the live `videos.json` carries `duration_ms` (checked: 594 of 594, from 4 s to 17 min), and the countdown for each clip is that clip's own duration, rounded up, plus 1 s for loading. It starts when the embed has finished loading in the window, and it restarts on next, previous, a card click and toggling `a`. A record without a duration waits for you (press next), or uses `embed_default_secs` if you set it. Because it is a timer, it can be off by a few seconds when the embed starts slowly, autoplay needs a click, or you pause or scrub the video itself.
+
+**Pause.** `p` / Space freezes the countdown; resume continues from the remaining time, not from the full duration. While paused a small "paused" pill shows and the cards stay visible. Clicking inside X's player also pauses our countdown, because that is the only sign we get that you are interacting with X's player. **Limit:** we cannot observe X's own pause, seek or end events, so pausing with X's own controls does not pause our timer; click inside the player (which does) or press `p`.
+
+**Like.** `f` opens X's like page for the current post in your default browser. slopTV uses no API keys, reads no cookies and automates nothing on X; you confirm the like there. Numeric post ids only. The mpv-only keys are listed under Advanced.
 
 ## Data source
 
@@ -120,7 +124,7 @@ Optional: `packaging/slopTV.desktop` is a launcher entry for Walker (copy it to 
 **Embed mode (default):**
 
 - `jon-slop.grok.me/videos.json` (feed, ETag polling; plus the page itself as a last-resort fallback), fetched by the Rust program.
-- `platform.twitter.com/embed/Tweet.html?id=<id>&dnt=true` and whatever X's player then loads (x.com, X's scripts, `video.twimg.com`, `pbs.twimg.com`, possibly cookies in slopTV's private Chromium profile), loaded by Chromium inside the official embed. This is X's own player and X decides what it fetches.
+- `platform.twitter.com/embed/Tweet.html?id=<id>&dnt=true&theme=dark` and whatever X's player then loads (x.com, X's scripts, `video.twimg.com`, `pbs.twimg.com`, possibly cookies in slopTV's private Chromium profile), loaded by Chromium inside the official embed. This is X's own player and X decides what it fetches.
 - `pbs.twimg.com`: poster thumbnails for the previous/next cards, two `<img>` tags loaded lazily by Chromium on our page (not by the Rust program), only after the privacy notice is accepted. Posters come from the feed's `poster` field and are only used if they are on `pbs.twimg.com`.
 - `x.com/intent/like?tweet_id=<id>`, only when you press `f` or the heart: opened in your default browser with `xdg-open`, never fetched by slopTV.
 - `127.0.0.1` on a random port, with a random token in the URL, serves slopTV's own local page. It is not reachable from other machines.
@@ -191,13 +195,13 @@ bash ~/.config/omarchy/plugins/io.github.monomyth.sloptv/scripts/uninstall.sh
 cargo fmt --check && cargo clippy --all-targets && cargo test
 ```
 
-55 unit tests use the small fixtures in `tests/fixtures/` (20 records of the live feed, and a trimmed page with the embedded data block for 10). The timer tests run the page's pure timer code under `node` with a fake clock and are skipped when node is not installed. CI runs the same three commands on ubuntu-latest with `libmpv-dev`. The `raw-mpv` cargo feature (on by default) pulls in libmpv2 and image decoding; `cargo build --no-default-features` builds the embed-only controller without libmpv (`install.sh` falls back to that automatically when libmpv is missing). I chose a feature over a separate crate so the default binary and `install.sh` stay a single build.
+56 unit tests use the small fixtures in `tests/fixtures/` (20 records of the live feed, and a trimmed page with the embedded data block for 10). The timer tests run the page's pure timer code under `node` with a fake clock and are skipped when node is not installed. CI runs the same three commands on ubuntu-latest with `libmpv-dev`. The `raw-mpv` cargo feature (on by default) pulls in libmpv2 and image decoding; `cargo build --no-default-features` builds the embed-only controller without libmpv (`install.sh` falls back to that automatically when libmpv is missing). I chose a feature over a separate crate so the default binary and `install.sh` stay a single build.
 
 ## Not yet verified on Hyprland
 
 Built and tested on a Debian box (Xvfb, google-chrome-stable): `cargo build --release`, unit tests (with and without the `raw-mpv` feature), the local controller served over HTTP (state, next, ack, quit, token gate), Chromium launching with its private profile and class `slop-tv`, and the process exiting cleanly (Chromium killed, launch file removed). The raw mode was smoke-tested earlier with libmpv under Xvfb.
 
-Not verified: that X's embed actually renders and plays inside the window (no screenshot or real playback was observed), whether autoplay works or needs a click, embed behaviour for deleted or protected posts, anything on Wayland or Hyprland (app-id from `--class`, floating/tiling, `hyprctl` focus and close in `open.sh`), the Omarchy plugin loader, Quickshell loading `Service.qml` and `BarWidget.qml` (including the bar icon click and its default right placement), the bind via `o.bind` and `install-bind.sh` against a real `omarchy menu keybindings --print`, `xdg-open`, and the first-run build on Arch.
+Not verified: that X's embed actually renders and plays inside the window (screenshots under Xvfb show the embed loading its tweet card with the video poster and a play button; actual video playback was not observed), whether autoplay works or needs a click, embed behaviour for deleted or protected posts, anything on Wayland or Hyprland (app-id from `--class`, floating/tiling, `hyprctl` focus and close in `open.sh`), the Omarchy plugin loader, Quickshell loading `Service.qml` and `BarWidget.qml` (including the bar icon click and its default right placement), the bind via `o.bind` and `install-bind.sh` against a real `omarchy menu keybindings --print`, `xdg-open`, and the first-run build on Arch.
 
 ## Credits
 

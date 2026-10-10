@@ -26,7 +26,7 @@ Opens the official X embedded player for each post in a Chromium app window.
   --reset-notice   show the one-time privacy notice again
 
 config: ~/.config/slop-tv/config.toml   cache: ~/.cache/slop-tv/
-Keys are listed in the player window (press ?).";
+Keys: l/h next/prev, p pause, a auto-advance, s shuffle, f like, o open on X, w fullscreen, q quit.";
 
 pub fn parse<I: Iterator<Item = String>>(mut it: I) -> Result<Args, String> {
     let mut a = Args::default();
