@@ -45,8 +45,27 @@ pub fn find_window(clients_json: &str, pid: Option<u32>) -> Option<(String, bool
     Some((addr, fs))
 }
 
-/// hyprctl argument lists that toggle fullscreen of exactly that window (focus it, then toggle).
-pub fn toggle_cmds(addr: &str) -> Vec<Vec<String>> {
+/// Lua-config Hyprland (0.55+): the old `hyprctl dispatch <name> <args>` text form is rejected there
+/// ("return hl.dispatch(fullscreen 0)"), so dispatch through `hyprctl eval` and set the state explicitly:
+/// focus the window by address, then fullscreen_state internal=N client=N (2 = fullscreen, 0 = off).
+pub fn toggle_cmds(addr: &str, currently_fullscreen: bool) -> Vec<Vec<String>> {
+    let n = if currently_fullscreen { 0 } else { 2 };
+    vec![
+        vec![
+            "eval".into(),
+            format!("hl.dispatch(hl.dsp.focus({{ window = 'address:{addr}' }}))"),
+        ],
+        vec![
+            "eval".into(),
+            format!(
+                "hl.dispatch(hl.dsp.window.fullscreen_state({{ window = 'address:{addr}', action = 'set', internal = {n}, client = {n} }}))"
+            ),
+        ],
+    ]
+}
+
+/// Older (non-Lua) Hyprland: classic dispatchers.
+pub fn legacy_cmds(addr: &str) -> Vec<Vec<String>> {
     vec![
         vec![
             "dispatch".into(),
@@ -55,6 +74,22 @@ pub fn toggle_cmds(addr: &str) -> Vec<Vec<String>> {
         ],
         vec!["dispatch".into(), "fullscreen".into(), "0".into()],
     ]
+}
+
+/// Run hyprctl commands; true only when every one answers `ok` (hyprctl exits 0 even on a rejected dispatch).
+fn run_all(cmds: &[Vec<String>]) -> bool {
+    cmds.iter().all(|a| {
+        Command::new(hyprctl())
+            .args(a)
+            .output()
+            .map(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == "ok")
+            .unwrap_or(false)
+    })
+}
+
+/// Toggle using the Lua form, falling back to the classic one.
+fn apply_toggle(addr: &str, fs: bool) -> bool {
+    run_all(&toggle_cmds(addr, fs)) || run_all(&legacy_cmds(addr))
 }
 
 fn clients() -> Option<String> {
@@ -69,16 +104,10 @@ fn clients() -> Option<String> {
 
 /// Toggle fullscreen of the slop-tv window. Returns false when the window or hyprctl is not available.
 pub fn toggle() -> bool {
-    let Some((addr, _)) = clients().and_then(|c| find_window(&c, Some(std::process::id()))) else {
+    let Some((addr, fs)) = clients().and_then(|c| find_window(&c, Some(std::process::id()))) else {
         return false;
     };
-    toggle_cmds(&addr).iter().all(|a| {
-        Command::new(hyprctl())
-            .args(a)
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-    })
+    apply_toggle(&addr, fs)
 }
 
 /// Startup only (never re-applied afterwards): once the window exists and has had a moment to honour
@@ -102,9 +131,7 @@ pub fn ensure_fullscreen_once() {
         if let Some((addr, false)) =
             clients().and_then(|c| find_window(&c, Some(std::process::id())))
         {
-            for a in toggle_cmds(&addr) {
-                let _ = Command::new(hyprctl()).args(a).output();
-            }
+            apply_toggle(&addr, false);
         }
     });
 }
@@ -166,14 +193,14 @@ mod tests {
     }
 
     #[test]
-    fn toggle_focuses_by_address_then_toggles_fullscreen() {
-        assert_eq!(
-            toggle_cmds("0xab"),
-            vec![
-                vec!["dispatch", "focuswindow", "address:0xab"],
-                vec!["dispatch", "fullscreen", "0"]
-            ]
-        );
+    fn toggle_uses_lua_eval_and_sets_the_state_explicitly() {
+        let on = toggle_cmds("0xab", false);
+        assert_eq!(on[0][0], "eval");
+        assert_eq!(on[0][1], "hl.dispatch(hl.dsp.focus({ window = 'address:0xab' }))");
+        assert!(on[1][1].contains("fullscreen_state") && on[1][1].contains("internal = 2, client = 2"));
+        let off = toggle_cmds("0xab", true);
+        assert!(off[1][1].contains("internal = 0, client = 0"));
+        assert_eq!(legacy_cmds("0xab")[1], vec!["dispatch", "fullscreen", "0"]);
     }
 
     #[test]
@@ -185,7 +212,7 @@ mod tests {
         std::fs::write(
             &shim,
             format!(
-                "#!/bin/sh\necho \"$@\" >> {}\nif [ \"$1\" = clients ]; then cat <<'EOF'\n{}\nEOF\nfi\n",
+                "#!/bin/sh\necho \"$@\" >> {}\nif [ \"$1\" = clients ]; then cat <<'EOF'\n{}\nEOF\nelse echo ok; fi\n",
                 log.display(),
                 j()
             ),
@@ -201,8 +228,8 @@ mod tests {
             calls.lines().collect::<Vec<_>>(),
             vec![
                 "clients -j",
-                "dispatch focuswindow address:0x5581deadbeef",
-                "dispatch fullscreen 0"
+                "eval hl.dispatch(hl.dsp.focus({ window = 'address:0x5581deadbeef' }))",
+                "eval hl.dispatch(hl.dsp.window.fullscreen_state({ window = 'address:0x5581deadbeef', action = 'set', internal = 0, client = 0 }))"
             ]
         );
         let _ = std::fs::remove_dir_all(&dir);

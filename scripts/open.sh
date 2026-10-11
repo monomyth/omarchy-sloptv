@@ -35,29 +35,39 @@ slop_addr() {
     '[.[] | select(.class | test("slop-tv"))] | ((map(select(.class | contains($p)))[0]) // .[0]) | .address // empty' 2>/dev/null || true
 }
 
+# Hyprland with a Lua config (0.55+) rejects the old `hyprctl dispatch <name> <args>` text form, so try
+# `hyprctl eval "hl.dispatch(...)"` first and fall back to the classic dispatcher.
+hl_try() { # hl_try '<lua expr>' <classic dispatch args...>
+  local lua="$1"; shift
+  [[ "$(hyprctl eval "hl.dispatch($lua)" 2>/dev/null)" == "ok" ]] && return 0
+  hyprctl dispatch "$@" >/dev/null 2>&1
+}
+
 focus() {
   local a
   a="$(slop_addr)"
-  [[ -n "$a" ]] && hyprctl dispatch focuswindow "address:$a" >/dev/null 2>&1 || true
+  [[ -n "$a" ]] && hl_try "hl.dsp.focus({ window = 'address:$a' })" focuswindow "address:$a" || true
 }
 
 quit() {
   local a
   a="$(slop_addr)"
-  if [[ -n "$a" ]] && hyprctl dispatch closewindow "address:$a" >/dev/null 2>&1; then :; else pkill -x slop-tv || true; fi
+  if [[ -n "$a" ]] && hl_try "hl.dsp.window.close({ window = 'address:$a' })" closewindow "address:$a"; then :; else pkill -x slop-tv || true; fi
 }
 
 
 # Toggle fullscreen of the slop-tv window through Hyprland (independent of page keyboard focus).
 fullscreen() {
-  local a
+  local a fs n
   a="$(slop_addr)"
   if [[ -z "$a" ]]; then
     echo "slop-tv window not found (is it running?)" >&2
     return 1
   fi
-  hyprctl dispatch focuswindow "address:$a" >/dev/null 2>&1 || true
-  hyprctl dispatch fullscreen 0 >/dev/null 2>&1
+  fs="$(hyprctl clients -j | jq -r --arg a "$a" '.[] | select(.address == $a) | .fullscreen')"
+  n=2; [[ "${fs:-0}" != "0" ]] && n=0
+  hl_try "hl.dsp.focus({ window = 'address:$a' })" focuswindow "address:$a" || true
+  hl_try "hl.dsp.window.fullscreen_state({ window = 'address:$a', action = 'set', internal = $n, client = $n })" fullscreen 0
 }
 
 # Print the window's current state (for debugging fullscreen problems).
