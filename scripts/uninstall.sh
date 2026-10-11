@@ -16,13 +16,21 @@ if [[ -f "$BINDINGS" ]] && grep -q 'sloptv_open' "$BINDINGS"; then
 import re, sys
 p = sys.argv[1]
 lines = open(p).read().split("\n")
-out, skipping = [], False
+has_fs = any(ln.startswith("o.bind(") and '"slopTV fullscreen"' in ln for ln in lines)
+out, skipping, skip_next = [], False, False
 for ln in lines:
+    if skip_next:
+        skip_next = False
+        continue
+    if "slopTV fullscreen chord (added by scripts/install-bind.sh)" in ln:
+        skip_next = True
+        continue
     if not skipping and "slopTV (added by scripts/install-bind.sh)" in ln:
         skipping = True
         continue
     if skipping:
-        if ln.startswith("o.bind(") and '"slopTV"' in ln:
+        end = '"slopTV fullscreen"' if has_fs else '"slopTV"'
+        if ln.startswith("o.bind(") and end in ln:
             skipping = False
         continue
     out.append(ln)

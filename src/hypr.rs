@@ -1,0 +1,153 @@
+//! Hyprland-native fullscreen for the slop-tv window. Chromium's own requestFullscreen() from a page whose
+//! focus sits inside X's iframe, or a compositor that ignores a client's request, can leave `w` doing nothing,
+//! so the controller drives the compositor directly: find the slop-tv window, focus it by address, toggle.
+use serde_json::Value;
+use std::process::Command;
+
+pub const CLASS: &str = "slop-tv";
+
+/// The hyprctl binary; `SLOPTV_HYPRCTL` overrides it (tests use a recording shim).
+fn hyprctl() -> String {
+    std::env::var("SLOPTV_HYPRCTL").unwrap_or_else(|_| "hyprctl".into())
+}
+
+pub fn available() -> bool {
+    std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some()
+}
+
+/// Address and fullscreen state of the slop-tv window from `hyprctl clients -j` output.
+pub fn find_window(clients_json: &str) -> Option<(String, bool)> {
+    let v: Value = serde_json::from_str(clients_json).ok()?;
+    let w = v.as_array()?.iter().find(|c| c["class"] == CLASS)?;
+    let addr = w["address"].as_str()?.to_string();
+    if !addr.starts_with("0x") || !addr[2..].bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let fs = w["fullscreen"].as_i64().unwrap_or(0) > 0 || w["fullscreen"] == true;
+    Some((addr, fs))
+}
+
+/// hyprctl argument lists that toggle fullscreen of exactly that window (focus it, then toggle).
+pub fn toggle_cmds(addr: &str) -> Vec<Vec<String>> {
+    vec![
+        vec![
+            "dispatch".into(),
+            "focuswindow".into(),
+            format!("address:{addr}"),
+        ],
+        vec!["dispatch".into(), "fullscreen".into(), "0".into()],
+    ]
+}
+
+fn clients() -> Option<String> {
+    let o = Command::new(hyprctl())
+        .args(["clients", "-j"])
+        .output()
+        .ok()?;
+    o.status
+        .success()
+        .then(|| String::from_utf8_lossy(&o.stdout).into_owned())
+}
+
+/// Toggle fullscreen of the slop-tv window. Returns false when the window or hyprctl is not available.
+pub fn toggle() -> bool {
+    let Some((addr, _)) = clients().and_then(|c| find_window(&c)) else {
+        return false;
+    };
+    toggle_cmds(&addr).iter().all(|a| {
+        Command::new(hyprctl())
+            .args(a)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    })
+}
+
+/// Startup only (never re-applied afterwards): once the window exists and has had a moment to honour
+/// `--start-fullscreen` itself, toggle it into fullscreen if it still is not. A user who leaves fullscreen
+/// later is never pushed back in.
+pub fn ensure_fullscreen_once() {
+    if !available() {
+        return;
+    }
+    std::thread::spawn(|| {
+        for _ in 0..40 {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            if clients().and_then(|c| find_window(&c)).is_some() {
+                break;
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+        if let Some((addr, false)) = clients().and_then(|c| find_window(&c)) {
+            for a in toggle_cmds(&addr) {
+                let _ = Command::new(hyprctl()).args(a).output();
+            }
+        }
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const J: &str = r#"[{"address":"0xaa11","class":"kitty","fullscreen":0},
+        {"address":"0x5581deadbeef","class":"slop-tv","fullscreen":2,"title":"slopTV"}]"#;
+
+    #[test]
+    fn finds_only_the_slop_tv_window_and_its_state() {
+        assert_eq!(find_window(J), Some(("0x5581deadbeef".into(), true)));
+        assert_eq!(
+            find_window(r#"[{"address":"0x1","class":"slop-tv","fullscreen":0}]"#),
+            Some(("0x1".into(), false))
+        );
+        assert_eq!(find_window(r#"[{"address":"0x1","class":"kitty"}]"#), None);
+        assert_eq!(find_window("not json"), None);
+        assert_eq!(
+            find_window(r#"[{"address":"0x1;rm","class":"slop-tv"}]"#),
+            None,
+            "address is validated"
+        );
+    }
+
+    #[test]
+    fn toggle_focuses_by_address_then_toggles_fullscreen() {
+        assert_eq!(
+            toggle_cmds("0xab"),
+            vec![
+                vec!["dispatch", "focuswindow", "address:0xab"],
+                vec!["dispatch", "fullscreen", "0"]
+            ]
+        );
+    }
+
+    #[test]
+    fn toggle_runs_hyprctl_shim_with_those_calls() {
+        let dir = std::env::temp_dir().join(format!("slop-tv-shim-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("calls");
+        let shim = dir.join("hyprctl");
+        std::fs::write(
+            &shim,
+            format!(
+                "#!/bin/sh\necho \"$@\" >> {}\nif [ \"$1\" = clients ]; then cat <<'EOF'\n{J}\nEOF\nfi\n",
+                log.display()
+            ),
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::env::set_var("SLOPTV_HYPRCTL", &shim);
+        assert!(toggle());
+        std::env::remove_var("SLOPTV_HYPRCTL");
+        let calls = std::fs::read_to_string(&log).unwrap();
+        assert_eq!(
+            calls.lines().collect::<Vec<_>>(),
+            vec![
+                "clients -j",
+                "dispatch focuswindow address:0x5581deadbeef",
+                "dispatch fullscreen 0"
+            ]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

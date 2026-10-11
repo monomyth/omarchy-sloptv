@@ -189,20 +189,39 @@ function loadFrame(s) {
 $('f').onload = () => arm();
 $('av').onclick = e => { e.preventDefault(); go('open'); toast('opening post on X'); };
 for (const z of ['hl', 'hr', 'ht']) $(z).addEventListener('mousemove', () => { idleT = Date.now(); showUi(2200); });
-$('hl').addEventListener('mouseenter', () => window.focus());
+for (const z of ['hl', 'hr', 'ht']) {
+  $(z).addEventListener('mouseenter', () => { if (document.activeElement === frame()) takeFocus(); else window.focus(); });
+  $(z).addEventListener('dblclick', () => fullscreen());
+}
 function go(p) { return api(p, true).then(s => { show(s); if (['auto', 'next', 'prev', 'ack'].includes(p)) arm(); return s; }); }
 // X's own fullscreen button: the iframe element becomes document.fullscreenElement. Keys no longer reach
 // this page then, so keep the countdown running (clicking that button would otherwise pause it).
 let inFs = false;
 document.addEventListener('fullscreenchange', () => { inFs = document.fullscreenElement === frame(); if (inFs) setPaused(false, true); });
-addEventListener('blur', () => setTimeout(() => { if (!inFs && document.activeElement === frame()) setPaused(true); }, 0));
+addEventListener('blur', () => setTimeout(() => {
+  if (!inFs && document.activeElement === frame()) { setPaused(true); setTimeout(takeFocus, 800); }
+}, 0));
 addEventListener('mousemove', () => { idleT = Date.now(); showUi(2200); });
-addEventListener('focus', () => { if (P) setPaused(false); });
+addEventListener('focus', () => { if (P && !refocusing) setPaused(false); });
 setInterval(tick, 250);
 $('cp').onclick = () => go('prev'); $('cn').onclick = () => go('next');
 $('ok').onclick = () => go('ack'); $('no').onclick = () => go('quit');
-function fullscreen() {
+// Fullscreen: on Hyprland the controller toggles the window through hyprctl (works whatever has focus);
+// elsewhere (or if that fails) the web Fullscreen API on our page is used.
+function webFullscreen() {
   if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => {});
+}
+function fullscreen() {
+  api('fullscreen', true).then(r => { if (!r.native) webFullscreen(); }).catch(webFullscreen);
+}
+// Give keyboard focus back to our page (it sits inside X's iframe after a click there).
+let refocusing = false;
+function takeFocus() {
+  if (inFs) return;
+  refocusing = true;
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  window.focus();
+  setTimeout(() => { refocusing = false; }, 100);
 }
 addEventListener('keydown', e => {
   if (e.ctrlKey || e.altKey || e.metaKey) return;
@@ -215,7 +234,7 @@ addEventListener('keydown', e => {
   else if (k === 'p' || k === ' ') { setPaused(!P); e.preventDefault(); }
   else if (k === 'f') { go('like'); toast('opening like page on X'); }
   else if (k === 'o') { go('open'); toast('opening post on X'); }
-  else if (k === 'w') fullscreen();
+  else if (k === 'w' || k === 'F11') { fullscreen(); e.preventDefault(); }
   else if (k === 'q') go('quit');
 });
 api('state').then(s => { show(s); arm(); });

@@ -11,3 +11,14 @@ local function sloptv_open()
 end
 
 o.bind("SUPER + SHIFT + CTRL + T", "slopTV", sloptv_open(), { release = true })
+
+-- Fullscreen toggle of the slopTV window through Hyprland itself (does not depend on keyboard focus in the page).
+local function sloptv_fullscreen()
+  return function()
+    local home = os.getenv("HOME") or ""
+    local script = home .. "/.config/omarchy/plugins/io.github.monomyth.sloptv/scripts/open.sh"
+    hl.dispatch(hl.dsp.exec_cmd("bash " .. script .. " fullscreen"))
+  end
+end
+
+o.bind("SUPER + SHIFT + CTRL + F", "slopTV fullscreen", sloptv_fullscreen(), { release = true })

@@ -15,6 +15,7 @@ normalize_chord() {
 }
 
 TARGET_NORM="$(normalize_chord "SUPER SHIFT CTRL T")"
+FS_NORM="$(normalize_chord "SUPER SHIFT CTRL F")"
 
 chord_taken_by_other() {
   # Echo "conflict:<line>" and return 0 if another binding owns the chord,
@@ -48,6 +49,30 @@ already_in_file() {
   return 1
 }
 
+
+# Second chord: Super+Shift+Ctrl+F toggles fullscreen of the player window via Hyprland.
+add_fullscreen_bind() {
+  [[ -f "$BINDINGS" ]] || return 0
+  grep -q 'sloptv_fullscreen\|open.sh fullscreen' "$BINDINGS" 2>/dev/null && return 0
+  local print line left norm
+  print="$(omarchy menu keybindings --print 2>/dev/null || true)"
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    left="$(echo "${line%%→*}" | sed 's/+/ /g')"
+    norm="$(normalize_chord "$left")"
+    if [[ "$norm" == "$FS_NORM" ]]; then
+      echo "Super+Shift+Ctrl+F is already bound ($line); skipping the slopTV fullscreen chord." >&2
+      return 0
+    fi
+  done <<< "$print"
+  {
+    echo ""
+    echo "-- slopTV fullscreen chord (added by scripts/install-bind.sh)"
+    echo 'o.bind("SUPER + SHIFT + CTRL + F", "slopTV fullscreen", function() hl.dispatch(hl.dsp.exec_cmd("bash " .. (os.getenv("HOME") or "") .. "/.config/omarchy/plugins/io.github.monomyth.sloptv/scripts/open.sh fullscreen")) end, { release = true })'
+  } >> "$BINDINGS"
+  echo "Added slopTV fullscreen chord (Super+Shift+Ctrl+F) to $BINDINGS"
+}
+
 if [[ ! -f "$SCRIPT_PATH" ]]; then
   echo "slopTV open.sh not found at:" >&2
   echo "  $SCRIPT_PATH" >&2
@@ -62,7 +87,8 @@ if [[ ! -f "$EXAMPLE" ]]; then
 fi
 
 if already_in_file; then
-  echo "slopTV bind already present in $BINDINGS — nothing to do."
+  echo "slopTV bind already present in $BINDINGS."
+  add_fullscreen_bind
   exit 0
 fi
 
@@ -91,4 +117,5 @@ fi
 } >> "$BINDINGS"
 
 echo "Added slopTV bind to $BINDINGS"
+add_fullscreen_bind
 echo "Reload Hyprland config if the chord doesn't take effect (omarchy often hot-reloads)."

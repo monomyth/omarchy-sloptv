@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # omarchy:summary=slopTV launcher: start the player, or focus/close it if running
-# Modes: toggle (default) | start | focus | quit
+# Modes: toggle (default) | start | focus | quit | fullscreen | status
 #   toggle: not running -> start; running but not focused -> focus; focused -> close
 set -euo pipefail
 
@@ -34,6 +34,27 @@ quit() {
   hyprctl dispatch closewindow "class:$CLASS_RE" >/dev/null 2>&1 || pkill -x slop-tv || true
 }
 
+slop_addr() {
+  hyprctl clients -j 2>/dev/null | jq -r '[.[] | select(.class=="slop-tv")][0].address // empty' 2>/dev/null || true
+}
+
+# Toggle fullscreen of the slop-tv window through Hyprland (independent of page keyboard focus).
+fullscreen() {
+  local a
+  a="$(slop_addr)"
+  if [[ -z "$a" ]]; then
+    echo "slop-tv window not found (is it running?)" >&2
+    return 1
+  fi
+  hyprctl dispatch focuswindow "address:$a" >/dev/null 2>&1 || true
+  hyprctl dispatch fullscreen 0 >/dev/null 2>&1
+}
+
+# Print the window's current state (for debugging fullscreen problems).
+status() {
+  hyprctl clients -j | jq '[.[] | select(.class=="slop-tv") | {address, class, title, fullscreen, fullscreenClient, floating, workspace: .workspace.name, at, size}]'
+}
+
 case "$MODE" in
   toggle|"")
     if ! is_running; then
@@ -53,8 +74,14 @@ case "$MODE" in
   quit)
     quit
     ;;
+  fullscreen)
+    if ! is_running; then start; else fullscreen; fi
+    ;;
+  status)
+    status
+    ;;
   *)
-    echo "usage: open.sh [toggle|start|focus|quit]" >&2
+    echo "usage: open.sh [toggle|start|focus|quit|fullscreen|status]" >&2
     exit 2
     ;;
 esac

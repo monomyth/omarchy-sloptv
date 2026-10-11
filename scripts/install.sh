@@ -20,9 +20,9 @@ elif [[ "$status" -ne 0 ]]; then
 fi
 cat <<EOF
 slopTV: done. How to run:
-  Keybind:   Super+Shift+Ctrl+T starts, focuses or closes the player
+  Keybind:   Super+Shift+Ctrl+T starts, focuses or closes the player; Super+Shift+Ctrl+F toggles fullscreen
   Bar icon:  on the right of the bar if the widget is enabled (click = same toggle)
-  In app:    l/h next/prev, p pause, f like, o open on X, w fullscreen, q quit
+  In app:    l/h next/prev, p pause, f like, o open on X, w/F11 fullscreen, q quit
   First run: a one-time privacy notice explains that X's own video page is used (unofficial; "player = \"embed\"" switches to the official embed)
   Remove:    bash "$SCRIPT_DIR/uninstall.sh"
 EOF

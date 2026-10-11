@@ -7,6 +7,7 @@ mod cache;
 mod config;
 mod embed;
 mod fetch;
+mod hypr;
 mod model;
 mod queue;
 #[cfg(feature = "raw-mpv")]

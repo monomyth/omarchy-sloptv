@@ -97,6 +97,7 @@ pub enum Action {
     None,
     Open(String),
     Quit,
+    Fullscreen,
 }
 
 pub struct Resp {
@@ -135,6 +136,7 @@ pub struct Ctl {
     pub scale_to_fit: bool,
     pub use_widgets: bool,
     pub video_player: bool,
+    pub hypr_native: bool,
 }
 
 impl Ctl {
@@ -159,6 +161,7 @@ impl Ctl {
             scale_to_fit: false,
             use_widgets: false,
             video_player: true,
+            hypr_native: false,
         };
         c.cur = c.queue.next();
         c
@@ -232,6 +235,7 @@ impl Ctl {
                 | "api/like"
                 | "api/ack"
                 | "api/quit"
+                | "api/fullscreen"
         );
         if mutating && method != "POST" {
             return plain(405, "POST only");
@@ -299,6 +303,16 @@ impl Ctl {
                 }
                 r
             }
+            "api/fullscreen" => {
+                // Hyprland: the compositor toggles the window (works whatever has keyboard focus).
+                // Elsewhere the page falls back to the web Fullscreen API.
+                let native = self.hypr_native;
+                let mut r = json(format!("{{\"native\":{native}}}"));
+                if native {
+                    r.action = Action::Fullscreen;
+                }
+                r
+            }
             "api/quit" => {
                 let mut r = plain(204, "");
                 r.action = Action::Quit;
@@ -355,6 +369,9 @@ fn serve_conn(mut s: TcpStream, ctl: &Mutex<Ctl>, quit: &Mutex<bool>) {
                 .stderr(Stdio::null())
                 .spawn()
                 .map(|mut c| std::thread::spawn(move || c.wait()));
+        }
+        Action::Fullscreen => {
+            std::thread::spawn(crate::hypr::toggle);
         }
         Action::Quit => *quit.lock().unwrap() = true,
         Action::None => {}
@@ -424,39 +441,6 @@ fn launch(url: &str, boot: &Path, fullscreen: bool) -> Result<Option<Child>> {
     Ok(None)
 }
 
-/// On Hyprland, make sure the app window really is fullscreen: --start-fullscreen is only a request
-/// and a compositor may ignore it. Polls briefly for the `slop-tv` window, then dispatches
-/// `fullscreen 0` once if it is not already fullscreen. Does nothing outside Hyprland.
-fn hyprland_fullscreen() {
-    if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_none() {
-        return;
-    }
-    std::thread::spawn(|| {
-        for _ in 0..40 {
-            std::thread::sleep(Duration::from_millis(500));
-            let Ok(out) = Command::new("hyprctl").args(["clients", "-j"]).output() else {
-                return;
-            };
-            let Ok(v) = serde_json::from_slice::<serde_json::Value>(&out.stdout) else {
-                continue;
-            };
-            let Some(w) = v
-                .as_array()
-                .and_then(|a| a.iter().find(|c| c["class"] == "slop-tv"))
-            else {
-                continue;
-            };
-            let fs = w["fullscreen"].as_i64().unwrap_or(0) > 0 || w["fullscreen"] == true;
-            if !fs {
-                let _ = Command::new("hyprctl")
-                    .args(["dispatch", "fullscreen", "0"])
-                    .output();
-            }
-            return;
-        }
-    });
-}
-
 pub fn run(cfg: Config, cache: Cache, reset_notice: bool) -> Result<()> {
     let notice = notice_path();
     if reset_notice {
@@ -478,6 +462,7 @@ pub fn run(cfg: Config, cache: Cache, reset_notice: bool) -> Result<()> {
     ctl.scale_to_fit = cfg.embed_scale_to_fit;
     ctl.use_widgets = cfg.embed_use_widgets;
     ctl.video_player = cfg.player != "embed";
+    ctl.hypr_native = crate::hypr::available();
     let listener = TcpListener::bind("127.0.0.1:0")?;
     listener.set_nonblocking(true)?;
     let url = format!(
@@ -488,7 +473,7 @@ pub fn run(cfg: Config, cache: Cache, reset_notice: bool) -> Result<()> {
     let boot = std::env::temp_dir().join(format!("slop-tv-launch-{}.html", std::process::id()));
     let mut child = launch(&url, &boot, cfg.start_fullscreen)?;
     if cfg.start_fullscreen {
-        hyprland_fullscreen();
+        crate::hypr::ensure_fullscreen_once();
     }
     let ctl = Arc::new(Mutex::new(ctl));
     let quit = Arc::new(Mutex::new(false));
@@ -785,9 +770,9 @@ mod tests {
     }
     #[test]
     fn page_keys_w_fullscreen_f_like_and_no_chrome() {
-        assert!(PAGE.contains("k === 'w') fullscreen()"));
+        assert!(PAGE.contains("k === 'w' || k === 'F11'"));
         assert!(PAGE.contains("k === 'f') { go('like')"), "f is Like");
-        assert!(!PAGE.contains("F11") && !PAGE.contains("k === 'f') fullscreen"));
+        assert!(!PAGE.contains("k === 'f') fullscreen"));
         assert!(PAGE.contains("theme=dark") || embed_url("1").unwrap().contains("theme=dark"));
         // no visible controls or help panel in the page: only the two cards and the notice buttons
         assert_eq!(PAGE.matches("<button").count(), 4);
@@ -910,5 +895,27 @@ mod tests {
             assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
         }
         let _ = std::fs::remove_file(&f);
+    }
+
+    #[test]
+    fn fullscreen_endpoint_is_post_only_and_native_only_on_hyprland() {
+        let mut c = Ctl::new(vec![], false, 1, PathBuf::from("/nonexistent/notice"));
+        c.token = "tok".into();
+        assert_eq!(c.handle("GET", "/t/tok/api/fullscreen").status, 405);
+        c.hypr_native = false;
+        let r = c.handle("POST", "/t/tok/api/fullscreen");
+        assert!(r.body.contains("\"native\":false") && matches!(r.action, Action::None));
+        c.hypr_native = true;
+        let r = c.handle("POST", "/t/tok/api/fullscreen");
+        assert!(r.body.contains("\"native\":true") && matches!(r.action, Action::Fullscreen));
+        assert_eq!(c.handle("POST", "/t/bad/api/fullscreen").status, 404);
+    }
+
+    #[test]
+    fn page_fullscreen_triggers_and_focus_recovery() {
+        assert!(PAGE.contains("k === 'w' || k === 'F11'"));
+        assert!(PAGE.contains("api('fullscreen', true)") && PAGE.contains("webFullscreen()"));
+        assert!(PAGE.contains("dblclick"));
+        assert!(PAGE.contains("addEventListener('mouseenter'") && PAGE.contains("takeFocus"));
     }
 }
