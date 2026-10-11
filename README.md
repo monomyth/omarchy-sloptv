@@ -79,7 +79,7 @@ Screenshots are of the real player on Omarchy, using clips from @monomyth.
 |---|---|---|
 | video page (default) | `player = "video"` | X's undocumented video-only page, `?autoplay=1` (also undocumented), as the top-level page with our overlay injected through the debugging port. If navigation to it fails, the official embed page is loaded top-level instead. |
 | official embed | `player = "embed"` | X's official embedded Post (`platform.twitter.com/embed/Tweet.html?id=<id>&dnt=true&theme=dark`), unmodified, centered. Shows the full card. Not video-only. |
-| raw mpv (hidden) | `--raw-mpv` or `raw_mpv = true` | Streams the mp4 through libmpv. Not shown in `--help`. See Advanced. |
+| raw mpv (hidden) | `--raw-mpv` or `raw_mpv = true` | Streams the mp4 through libmpv. Not shown in `--help`. Needs a feed with `mp4` links, which the public jon-slop.grok.me feed no longer publishes, so it only works with your own `--source`. See Advanced. |
 
 Optional hidden embed settings (`embed_use_widgets`, `embed_scale_to_fit`) and the research behind the design are in [docs/EMBED_NOTES.md](docs/EMBED_NOTES.md).
 
@@ -185,19 +185,19 @@ Default: `https://jon-slop.grok.me/videos.json` (newest first, ETag, re-checked 
 | `videos[].creator` | string | handle, shown as `@handle` |
 | `videos[].caption` | string | post text |
 | `videos[].posted_at` | string | timestamp |
-| `videos[].mp4` | string | direct mp4 link (raw mode only; may be empty) |
+| `videos[].mp4` | string | always empty in the public feed (the key is kept for compatibility). The default player never uses it; only the hidden raw mode could, and raw mode needs a feed that supplies it |
 | `videos[].poster` | string | poster image URL |
 | `videos[].duration_ms`, `likes`, `views` | int | |
 | `videos[].phase` | string | |
 | `videos[].unsure` | bool | |
 
-Fallbacks, in order: the on-disk copy of the last good feed; the embedded `<script id="data">` JSON of `https://jon-slop.grok.me` (short keys). `--source` or `source_url` also takes a local path or `file://` for development. Embed mode needs only each record's post `id` (and `url` for `o`). The `mp4` and `poster` fields are used only by the hidden raw mode. Binary feed formats were evaluated and not adopted: see [docs/FORMAT_EVAL.md](docs/FORMAT_EVAL.md).
+Fallbacks, in order: the on-disk copy of the last good feed; the embedded `<script id="data">` JSON of `https://jon-slop.grok.me` (short keys). `--source` or `source_url` also takes a local path or `file://` for development. The default player needs only each record's post `id` (and `url` for `o`); `poster` is used for the cards. `mp4` is used only by the hidden raw mode. Binary feed formats were evaluated and not adopted: see [docs/FORMAT_EVAL.md](docs/FORMAT_EVAL.md).
 
 ## Advanced
 
 ### Raw mpv mode (unofficial)
 
-Plays the plain `video.twimg.com` mp4 through libmpv instead of X's page, with a poster grid, search and credit cards. **It may violate X's terms of service. Use it at your own risk.** Off by default and not shown in `--help`. Enable it with `--raw-mpv` or `raw_mpv = true`. It needs a build that includes libmpv.
+Plays the plain `video.twimg.com` mp4 through libmpv instead of X's page. **The public jon-slop.grok.me feed no longer publishes `mp4` links, so this mode only works with your own feed (`--source`) that does.** It with a poster grid, search and credit cards. **It may violate X's terms of service. Use it at your own risk.** Off by default and not shown in `--help`. Enable it with `--raw-mpv` or `raw_mpv = true`. It needs a build that includes libmpv.
 
 #### Raw mode keys
 
