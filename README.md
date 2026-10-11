@@ -197,7 +197,7 @@ Fallbacks, in order: the on-disk copy of the last good feed; the embedded `<scri
 
 ### Raw mpv mode (unofficial)
 
-Plays the plain `video.twimg.com` mp4 through libmpv instead of X's page. **The public jon-slop.grok.me feed no longer publishes `mp4` links, so this mode only works with your own feed (`--source`) that does.** It with a poster grid, search and credit cards. **It may violate X's terms of service. Use it at your own risk.** Off by default and not shown in `--help`. Enable it with `--raw-mpv` or `raw_mpv = true`. It needs a build that includes libmpv.
+Plays the plain `video.twimg.com` mp4 through libmpv instead of X's page. **The public jon-slop.grok.me feed no longer publishes `mp4` links, so this mode only works with your own feed (`--source`) that does.** It has a poster grid, search and credit cards. **It may violate X's terms of service. Use it at your own risk.** Off by default and not shown in `--help`. Enable it with `--raw-mpv` or `raw_mpv = true`. It needs a build that includes libmpv.
 
 #### Raw mode keys
 
