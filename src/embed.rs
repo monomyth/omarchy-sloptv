@@ -394,6 +394,10 @@ pub fn browser_args(profile: &Path, launch_url: &str, fullscreen: bool) -> Vec<S
         "--no-first-run".into(),
         "--no-default-browser-check".into(),
         "--autoplay-policy=no-user-gesture-required".into(),
+        // the auto-advance countdown must keep its pace when the window is occluded or in the background
+        "--disable-background-timer-throttling".into(),
+        "--disable-renderer-backgrounding".into(),
+        "--disable-backgrounding-occluded-windows".into(),
         "--window-size=720,900".into(),
         "--new-window".into(),
         format!("--app={launch_url}"),
@@ -923,5 +927,28 @@ mod tests {
     fn pause_has_no_on_screen_label_but_keeps_cards_visible() {
         assert!(!PAGE.contains("toast('paused'") && !PAGE.contains("timer paused"));
         assert!(PAGE.contains("if (on) showUi(1e9)"));
+    }
+
+    #[test]
+    fn click_in_iframe_never_pauses_and_debug_overlay_is_hidden_by_default() {
+        // setPaused(true) / setPaused(!P) is reachable only from our own pause key
+        let calls = PAGE.matches("setPaused(").count();
+        assert!(PAGE.contains("else if (k === 'p' || k === ' ') { setPaused(!P)"));
+        assert!(
+            !PAGE.contains("setPaused(true)"),
+            "no click/blur pause heuristic"
+        );
+        assert!(!PAGE.contains("addEventListener('focus'"));
+        assert!(calls >= 3);
+        assert!(PAGE.contains("#dbg{") && PAGE.contains("display:none"));
+        assert!(PAGE.contains("k === 'd'") && PAGE.contains("let dbgOn = false"));
+        let args = browser_args(Path::new("/p"), "http://x/", false);
+        for f in [
+            "--disable-background-timer-throttling",
+            "--disable-renderer-backgrounding",
+            "--disable-backgrounding-occluded-windows",
+        ] {
+            assert!(args.contains(&f.to_string()), "{f}");
+        }
     }
 }

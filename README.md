@@ -33,7 +33,7 @@ Screenshots were taken in Chromium under Xvfb, not on Hyprland.
 1. A small Rust program (the controller) loads the feed, keeps the queue (next, previous, shuffle) and serves a local page on `127.0.0.1` with a random token in the URL.
 2. It starts Chromium (`--app`, `--class=slop-tv` (X11 only; on Wayland Chromium names the window `chrome-__tmp_slop-tv-launch-<pid>.html-Default`, which slopTV matches by the `slop-tv` substring), private profile under `~/.cache/omarchy/sloptv/chromium-profile/`, `--autoplay-policy=no-user-gesture-required`, fullscreen by default). The page holds one iframe with X's page, with `allow="autoplay; fullscreen"`.
 3. **Auto-advance is timer-based.** The iframe is cross-origin, so slopTV cannot see when a video ends and it injects nothing into X's page. Every record in the live feed carries `duration_ms` (checked: 594 of 594); the countdown is that duration rounded up plus 1 s. A post with no known duration waits for you (or uses `embed_default_secs`).
-4. **Pause.** `p`/Space freezes slopTV's countdown; resume continues from the remaining time. A click inside the video also pauses the countdown.
+4. **Pause.** `p`/Space freezes slopTV's countdown; resume continues from the remaining time. A click inside the video does not pause or stop the countdown; only `p`/Space does, and the countdown does not depend on keyboard focus.
 5. The cards, the pill and the 2 px progress line at the bottom edge are our own elements on our own page.
 
 ### Player modes
@@ -58,6 +58,7 @@ Optional hidden embed settings (`embed_use_widgets`, `embed_scale_to_fit`) and t
 | f | like: opens `https://x.com/intent/like?tweet_id=<id>` in your default browser; you confirm on X with your own login |
 | o | open the post on X in your default browser (`xdg-open`). Public posts open without an account, but X may show a login wall when signed out |
 | w or F11 | toggle fullscreen |
+| d | debug overlay (top right): current id, feed duration, seconds remaining, paused, auto-advance, position, focused element. Hidden by default |
 | q | quit |
 
 Mouse: move to show the cards; click a card to jump; double-click a screen edge strip to toggle fullscreen. Keys only reach our page while it has focus; see Troubleshooting.
@@ -134,11 +135,13 @@ bash ~/.config/omarchy/plugins/io.github.monomyth.sloptv/scripts/open.sh status
 
 On Wayland the class looks like `chrome-__tmp_slop-tv-launch-<pid>.html-Default` (pid = the slop-tv controller), not `slop-tv`; slopTV, `open.sh` and the chord match any class containing `slop-tv` and prefer the one with the controller's pid. `fullscreen` greater than 0 (2 = fullscreen) means Hyprland considers it fullscreen; the toggle (`fullscreen 0`) leaves it windowed and a second press returns. Try the toggle by hand with `bash ~/.config/omarchy/plugins/io.github.monomyth.sloptv/scripts/open.sh fullscreen` and compare the output; the launcher log is `~/.local/state/omarchy/sloptv/slop-tv.log`.
 
-**Keys stop working after I click the video.** Clicking gives X's frame the keyboard. slopTV takes focus back about a second after a click, and also when the mouse enters a screen edge strip (22 px left/right, 14 px top). Clicking in the video pauses our timer; press `p` to resume.
+**Keys stop working after I click the video.** Clicking gives X's frame the keyboard. slopTV takes focus back about a second after a click, and also when the mouse enters a screen edge strip (22 px left/right, 14 px top). Clicking in the video does not affect the countdown.
 
 **A play button shows and the video does not start.** The video page autoplays only because of the undocumented `?autoplay=1`. If X stops honouring it, click the video once per clip. `player = "embed"` has the same limit.
 
 **The page does not load.** At startup slopTV makes one opaque request to the video page; if it fails (offline, DNS, blocked, 8 s timeout) the session switches to the official embed. It cannot detect an HTTP error, a login wall or an "unavailable" message inside a page that did load, and only the first clip is probed. Set `player = "embed"` to avoid the page entirely.
+
+**The next video did not start.** Press `d` to see the countdown: if `remaining` runs down and `paused` is false, slopTV will advance when it hits 0; if `paused` is true you pressed `p`/Space (press it again); if `remaining` says `off`, auto-advance is off (`a`) or the post has no feed duration. If it advanced but the new clip shows a play button, X did not honour `?autoplay=1` for that load (we cannot read the page to confirm playback, so the countdown runs regardless; click the video once). An X error or login wall inside the frame is not detectable and also does not stop the countdown. Chromium is started with `--disable-background-timer-throttling`, `--disable-renderer-backgrounding` and `--disable-backgrounding-occluded-windows` so a covered or background window keeps its pace.
 
 **The auto-advance changes too early or late.** It is a timer from the feed's duration plus 1 s, started when the frame loads. Slow loading, X's own pause or seek, or a post whose real video length differs from the feed all shift it. `a` turns it off.
 
@@ -238,7 +241,7 @@ Raw-mode config keys: `volume`, `fullscreen`, `cache_max_mb`, `poll_minutes`, `f
 
 ## Known limitations and not verified
 
-Tested on a Debian box with Xvfb, google-chrome-stable and xfwm4: unit tests, the controller over HTTP, the page's keys, fullscreen via the web API, F11, focus recovery after a click in X's frame, autoplay and timer advance with live X pages (logged out), and the unreachable-page fallback (by blocking `x.com`). The Hyprland fullscreen path was tested only against a fake `hyprctl` that records its calls.
+Tested on a Debian box with Xvfb, google-chrome-stable and xfwm4: unit tests, the controller over HTTP, the page's keys, fullscreen via the web API, F11, focus recovery after a click in X's frame, four consecutive short clips auto-advancing with and without a click in the video, autoplay and timer advance with live X pages (logged out), and the unreachable-page fallback (by blocking `x.com`). The Hyprland fullscreen path was tested only against a fake `hyprctl` that records its calls.
 
 Not verified:
 - Anything on a real Hyprland/Wayland desktop: `--start-fullscreen`, the `hyprctl` calls (`focuswindow address:...`, `fullscreen 0`) on Omarchy's Hyprland version, window rules, and the install script's bind handling.
