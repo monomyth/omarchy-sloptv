@@ -15,10 +15,28 @@ pub fn available() -> bool {
     std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some()
 }
 
-/// Address and fullscreen state of the slop-tv window from `hyprctl clients -j` output.
-pub fn find_window(clients_json: &str) -> Option<(String, bool)> {
+/// Address and fullscreen state of our window from `hyprctl clients -j` output.
+/// On Wayland Chromium derives the app-id from the --app URL and profile, so `--class=slop-tv` is ignored and
+/// the class looks like `chrome-__tmp_slop-tv-launch-<controller pid>.html-Default`. Any class containing
+/// `slop-tv` matches; one containing our controller pid is preferred (several slopTV instances, or a
+/// leftover window, cannot steal the toggle).
+pub fn find_window(clients_json: &str, pid: Option<u32>) -> Option<(String, bool)> {
     let v: Value = serde_json::from_str(clients_json).ok()?;
-    let w = v.as_array()?.iter().find(|c| c["class"] == CLASS)?;
+    let mut hits = v
+        .as_array()?
+        .iter()
+        .filter(|c| c["class"].as_str().is_some_and(|k| k.contains(CLASS)))
+        .collect::<Vec<_>>();
+    if let Some(p) = pid {
+        let mine = format!("slop-tv-launch-{p}.");
+        if let Some(i) = hits
+            .iter()
+            .position(|c| c["class"].as_str().is_some_and(|k| k.contains(&mine)))
+        {
+            hits = vec![hits[i]];
+        }
+    }
+    let w = hits.first()?;
     let addr = w["address"].as_str()?.to_string();
     if !addr.starts_with("0x") || !addr[2..].bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
@@ -51,7 +69,7 @@ fn clients() -> Option<String> {
 
 /// Toggle fullscreen of the slop-tv window. Returns false when the window or hyprctl is not available.
 pub fn toggle() -> bool {
-    let Some((addr, _)) = clients().and_then(|c| find_window(&c)) else {
+    let Some((addr, _)) = clients().and_then(|c| find_window(&c, Some(std::process::id()))) else {
         return false;
     };
     toggle_cmds(&addr).iter().all(|a| {
@@ -73,12 +91,17 @@ pub fn ensure_fullscreen_once() {
     std::thread::spawn(|| {
         for _ in 0..40 {
             std::thread::sleep(std::time::Duration::from_millis(500));
-            if clients().and_then(|c| find_window(&c)).is_some() {
+            if clients()
+                .and_then(|c| find_window(&c, Some(std::process::id())))
+                .is_some()
+            {
                 break;
             }
         }
         std::thread::sleep(std::time::Duration::from_millis(1500));
-        if let Some((addr, false)) = clients().and_then(|c| find_window(&c)) {
+        if let Some((addr, false)) =
+            clients().and_then(|c| find_window(&c, Some(std::process::id())))
+        {
             for a in toggle_cmds(&addr) {
                 let _ = Command::new(hyprctl()).args(a).output();
             }
@@ -90,23 +113,56 @@ pub fn ensure_fullscreen_once() {
 mod tests {
     use super::*;
 
-    const J: &str = r#"[{"address":"0xaa11","class":"kitty","fullscreen":0},
-        {"address":"0x5581deadbeef","class":"slop-tv","fullscreen":2,"title":"slopTV"}]"#;
+    /// Real class string reported by Hyprland on Wayland (fullscreen=2 at startup); pid 2947700.
+    const REAL: &str = "chrome-__tmp_slop-tv-launch-2947700.html-Default";
+    fn clients(extra: &str) -> String {
+        format!(
+            r#"[{{"address":"0xaa11","class":"kitty","fullscreen":0}},{extra}
+            {{"address":"0x5581deadbeef","class":"{REAL}","fullscreen":2,"fullscreenClient":2,"title":"slopTV"}}]"#
+        )
+    }
+    fn j() -> String {
+        clients("")
+    }
 
     #[test]
-    fn finds_only_the_slop_tv_window_and_its_state() {
-        assert_eq!(find_window(J), Some(("0x5581deadbeef".into(), true)));
+    fn finds_the_real_wayland_class_and_the_plain_class() {
         assert_eq!(
-            find_window(r#"[{"address":"0x1","class":"slop-tv","fullscreen":0}]"#),
+            find_window(&j(), None),
+            Some(("0x5581deadbeef".into(), true))
+        );
+        assert_eq!(
+            find_window(
+                r#"[{"address":"0x1","class":"slop-tv","fullscreen":0}]"#,
+                None
+            ),
             Some(("0x1".into(), false))
         );
-        assert_eq!(find_window(r#"[{"address":"0x1","class":"kitty"}]"#), None);
-        assert_eq!(find_window("not json"), None);
         assert_eq!(
-            find_window(r#"[{"address":"0x1;rm","class":"slop-tv"}]"#),
+            find_window(r#"[{"address":"0x1","class":"kitty"}]"#, None),
+            None
+        );
+        assert_eq!(find_window("not json", None), None);
+        assert_eq!(
+            find_window(r#"[{"address":"0x1;rm","class":"slop-tv"}]"#, None),
             None,
             "address is validated"
         );
+    }
+
+    #[test]
+    fn prefers_the_window_of_our_controller_pid() {
+        let other = r#"{"address":"0x99","class":"chrome-__tmp_slop-tv-launch-111.html-Default","fullscreen":0},"#;
+        let c = clients(other);
+        assert_eq!(
+            find_window(&c, Some(2947700)),
+            Some(("0x5581deadbeef".into(), true))
+        );
+        assert_eq!(find_window(&c, Some(111)), Some(("0x99".into(), false)));
+        // unknown pid: first slop-tv window
+        assert_eq!(find_window(&c, Some(5)), Some(("0x99".into(), false)));
+        // pid prefix must not match a longer pid
+        assert_eq!(find_window(&c, Some(29477)), Some(("0x99".into(), false)));
     }
 
     #[test]
@@ -129,8 +185,9 @@ mod tests {
         std::fs::write(
             &shim,
             format!(
-                "#!/bin/sh\necho \"$@\" >> {}\nif [ \"$1\" = clients ]; then cat <<'EOF'\n{J}\nEOF\nfi\n",
-                log.display()
+                "#!/bin/sh\necho \"$@\" >> {}\nif [ \"$1\" = clients ]; then cat <<'EOF'\n{}\nEOF\nfi\n",
+                log.display(),
+                j()
             ),
         )
         .unwrap();

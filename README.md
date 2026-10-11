@@ -31,7 +31,7 @@ Screenshots were taken in Chromium under Xvfb, not on Hyprland.
 ## How it works
 
 1. A small Rust program (the controller) loads the feed, keeps the queue (next, previous, shuffle) and serves a local page on `127.0.0.1` with a random token in the URL.
-2. It starts Chromium (`--app`, window class `slop-tv`, private profile under `~/.cache/omarchy/sloptv/chromium-profile/`, `--autoplay-policy=no-user-gesture-required`, fullscreen by default). The page holds one iframe with X's page, with `allow="autoplay; fullscreen"`.
+2. It starts Chromium (`--app`, `--class=slop-tv` (X11 only; on Wayland Chromium names the window `chrome-__tmp_slop-tv-launch-<pid>.html-Default`, which slopTV matches by the `slop-tv` substring), private profile under `~/.cache/omarchy/sloptv/chromium-profile/`, `--autoplay-policy=no-user-gesture-required`, fullscreen by default). The page holds one iframe with X's page, with `allow="autoplay; fullscreen"`.
 3. **Auto-advance is timer-based.** The iframe is cross-origin, so slopTV cannot see when a video ends and it injects nothing into X's page. Every record in the live feed carries `duration_ms` (checked: 594 of 594); the countdown is that duration rounded up plus 1 s. A post with no known duration waits for you (or uses `embed_default_secs`).
 4. **Pause.** `p`/Space freezes slopTV's countdown; resume continues from the remaining time. A click inside the video also pauses the countdown.
 5. The cards, the pill and the 2 px progress line at the bottom edge are our own elements on our own page.
@@ -127,12 +127,12 @@ First run shows a small notice: the default page is unofficial, loads X scripts 
 **Fullscreen does nothing, or you cannot get back into it.** On Hyprland, `w`, F11, a double-click on a screen edge strip and Super+Shift+Ctrl+F all ask Hyprland itself to toggle the slop-tv window (focus it by address, then `fullscreen 0`). Outside Hyprland, `w` uses the browser's Fullscreen API. slopTV only requests fullscreen once at startup. If it still fails, look at the window state:
 
 ```sh
-hyprctl clients -j | jq '.[] | select(.class=="slop-tv") | {address, class, fullscreen, fullscreenClient, floating, workspace: .workspace.name, at, size}'
+hyprctl clients -j | jq '.[] | select(.class|test("slop-tv")) | {address, class, fullscreen, fullscreenClient, floating, workspace: .workspace.name, at, size}'
 # or, with the plugin installed:
 bash ~/.config/omarchy/plugins/io.github.monomyth.sloptv/scripts/open.sh status
 ```
 
-`fullscreen` greater than 0 means Hyprland considers it fullscreen. Try the toggle by hand with `bash ~/.config/omarchy/plugins/io.github.monomyth.sloptv/scripts/open.sh fullscreen` and compare the output; the launcher log is `~/.local/state/omarchy/sloptv/slop-tv.log`.
+On Wayland the class looks like `chrome-__tmp_slop-tv-launch-<pid>.html-Default` (pid = the slop-tv controller), not `slop-tv`; slopTV, `open.sh` and the chord match any class containing `slop-tv` and prefer the one with the controller's pid. `fullscreen` greater than 0 (2 = fullscreen) means Hyprland considers it fullscreen; the toggle (`fullscreen 0`) leaves it windowed and a second press returns. Try the toggle by hand with `bash ~/.config/omarchy/plugins/io.github.monomyth.sloptv/scripts/open.sh fullscreen` and compare the output; the launcher log is `~/.local/state/omarchy/sloptv/slop-tv.log`.
 
 **Keys stop working after I click the video.** Clicking gives X's frame the keyboard. slopTV takes focus back about a second after a click, and also when the mouse enters a screen edge strip (22 px left/right, 14 px top). Clicking in the video pauses our timer; press `p` to resume.
 
