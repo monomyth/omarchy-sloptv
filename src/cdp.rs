@@ -52,7 +52,8 @@ fn mark_clean_exit(profile: &std::path::Path) {
 
 /// `--app=about:blank` makes this Chromium (with the Arch/Omarchy wrapper flags) open a plain New Tab (Google)
 /// instead of an app window, so the start page is a tiny black data: page.
-pub const BLANK_APP_URL: &str = "data:text/html,<title>slopTV</title><body style='background:%23000'>";
+pub const BLANK_APP_URL: &str =
+    "data:text/html,<title>slopTV</title><body style='background:%23000'>";
 
 pub fn browser_args(profile: &std::path::Path, port: u16, fullscreen: bool) -> Vec<String> {
     let mut v = embed::browser_args(profile, BLANK_APP_URL, fullscreen);

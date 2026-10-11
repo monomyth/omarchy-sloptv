@@ -62,7 +62,7 @@ Read this before you install.
 |---|---|
 | ![cards overlay and attribution pill](docs/images/cards-and-attribution.webp) | ![paused, cards visible](docs/images/paused.webp) |
 
-Screenshots were taken in Chromium under Xvfb, not on Hyprland.
+Screenshots are of the real player on Omarchy, using clips from @monomyth.
 
 ## How it works
 
@@ -246,7 +246,7 @@ Raw-mode config keys: `volume`, `fullscreen`, `cache_max_mb`, `poll_minutes`, `f
 
 ## Known limitations and not verified
 
-Tested on a real Omarchy machine (Hyprland 0.56, Chromium, Wayland): the install and reinstall steps, the start and quit chords, fullscreen toggling with `w`, the privacy notice, and playback of the newest clip with the injected overlay, plus unit tests and a headless Chromium run of the controller. Screenshots in this README come from an earlier Xvfb test, not Hyprland.
+Tested on a real Omarchy machine (Hyprland 0.56, Chromium, Wayland): the install and reinstall steps, the start and quit chords, fullscreen toggling with `w`, the privacy notice, and playback of the newest clip with the injected overlay, plus unit tests and a headless Chromium run of the controller. Screenshots are from that machine.
 
 Not verified:
 - That X keeps serving the video page and honouring `?autoplay=1`, or that its player and playlist keep their current structure (the overlay and the best-quality rewrite depend on both).
@@ -266,7 +266,7 @@ Unit tests use the fixtures in `tests/fixtures/`. The timer and page-syntax test
 
 ## Credits
 
-Feed curated by [jon-slop.grok.me](https://jon-slop.grok.me). Plugin layout follows [omarchy-meshpeek](https://github.com/monomyth/omarchy-meshpeek). The videos belong to their creators and are shown through X's own pages (or, in raw mode, streamed from video.twimg.com and, with `download_clips`, cached locally for playback only). slopTV does not redistribute them; the repository holds only a small metadata fixture. Screenshots show third-party videos from the live feed.
+Feed curated by [jon-slop.grok.me](https://jon-slop.grok.me). Plugin layout follows [omarchy-meshpeek](https://github.com/monomyth/omarchy-meshpeek). The videos belong to their creators and are shown through X's own pages (or, in raw mode, streamed from video.twimg.com and, with `download_clips`, cached locally for playback only). slopTV does not redistribute them; the repository holds only a small metadata fixture. The screenshots show clips by the repo owner (@monomyth).
 
 ## License
 
