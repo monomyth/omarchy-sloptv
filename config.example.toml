@@ -18,6 +18,7 @@ hwdec        = "auto-safe"
 download_clips = false
 # Hidden, unofficial (see README 'Advanced'): play raw mp4s with libmpv instead of X's embedded player.
 raw_mpv = false
+player = "video"   # "video": X's video-only player page x.com/i/videos/tweet/<id> (unofficial, see README); "embed": X's official embedded Post
 auto_advance       = true   # embed mode: move on by timer after the post's known duration (iframe events are not readable)
 embed_default_secs = 0      # embed mode: seconds to show a post with no known duration; 0 = wait for next
 start_fullscreen    = true   # embed mode: open the Chromium app window fullscreen (w toggles)

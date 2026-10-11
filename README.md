@@ -2,9 +2,20 @@
 
 Keyboard-first Slop Cannon player for [Omarchy](https://omarchy.org/) Quattro.
 
-One shortcut opens a Chromium app window (window class `slop-tv`) that plays each post in **X's own official embedded player**, unmodified, for the feed curated at [jon-slop.grok.me](https://jon-slop.grok.me). A small Rust program is the controller: it reads the feed and keeps the queue (next, previous, shuffle, like, open on X). The window shows nothing but the embed unless you move the mouse. The approach mirrors omarchy-meshpeek: `chromium --app` on a local launcher page.
+One shortcut opens a Chromium app window (window class `slop-tv`) that plays each post in **X's own video-only player page** (`https://x.com/i/videos/tweet/<id>?autoplay=1`) filling the window, for the feed curated at [jon-slop.grok.me](https://jon-slop.grok.me). A small Rust program is the controller: it reads the feed and keeps the queue (next, previous, shuffle, like, open on X). The window shows nothing but the video unless you move the mouse. `player = "embed"` in the config switches to X's official embedded Post instead. The approach mirrors omarchy-meshpeek: `chromium --app` on a local launcher page.
 
-The first time you run it, slopTV shows a one-time privacy notice: the embed is X's own player, loads X scripts and may set X cookies (in slopTV's own private Chromium profile, not your normal one). The embed URL uses `dnt=true&theme=dark`. Nothing is injected into the embed and slopTV never touches cookies.
+The first time you run it, slopTV shows a one-time privacy notice: the default video page is an **unofficial, undocumented X page** that may change or be blocked, loads X scripts and media and may set X cookies (in slopTV's own private Chromium profile, not your normal one). The notice says so, and says slopTV falls back to the official embed if the page is unreachable. Nothing is injected into X's page or the embed, and slopTV never touches cookies.
+
+## The video player page (default) and its limits
+
+`x.com/i/videos/tweet/<id>` is the video-only player X's own embeds use. It is **not documented anywhere in docs.x.com**, so treat it as an unofficial surface: X may change it, add a login wall, or block it, and whether it fits X's terms is untested and at your own risk (the official embed remains available with `player = "embed"`). What we tested in Chromium under Xvfb, logged out, with the live feed:
+
+- The page loads without any X account and shows only X's player (video, X's own small time/views label). No card, no header.
+- Without a parameter it shows a poster and a big play button that needs a click on every clip. The page accepts an **undocumented** `?autoplay=1`; with it, and `allow="autoplay; fullscreen"` on our iframe plus Chromium's `--autoplay-policy=no-user-gesture-required`, clips started on their own, unmuted, including after auto-advance. If X stops honouring it, you will see the play button and must click it.
+- Auto-advance is still timer-based (feed `duration_ms` + 1 s), because the iframe's events are not readable. Pause (`p`/Space) freezes only **our** timer; X's player keeps playing, and a click inside the video also pauses our timer.
+- Clicking inside the video gives that frame the keyboard focus, so our keys stop working until you move the mouse to a screen edge or click outside it. Our edge zones (22 px left/right, 14 px top) are transparent strips on our page that show the cards and attribution on mouse move, since mouse events inside X's frame are invisible to us.
+- Attribution: a small pill in the top-left corner (X mark as text, @handle, name when the feed has it, and a **View on X** link, which opens the post URL via `xdg-open`) fades in on mouse move, pause and clip change. It does not cover the video centre. It is our own element; it is not the full set of Display Requirements elements (no avatar, text, timestamp or action icons), which is one more reason this page is a gray area.
+- Fallback: when the first clip loads, slopTV makes one opaque `no-cors` request to the same URL (response never read, no credentials). If it fails (DNS, connection, TLS, 8 s timeout), the session switches to the official embed. Verified by blocking `x.com` in Chromium. Not detectable without inspecting X's content: HTTP errors, a login wall, or an X "unavailable" message inside a page that did load. Only the first clip is probed.
 
 ## Install
 
@@ -44,7 +55,7 @@ sudo pacman -S chromium rust pkgconf jq xdg-utils   # + mpv for the optional raw
 
 ## In the player
 
-The window is just X's embed, centered on a dark background (`theme=dark` is an official embed parameter). Nothing else is drawn by default except a 2 px progress line along the bottom edge.
+The window is just X's video page, filling the window (with `player = "embed"`: X's embed, centered on a dark background, `theme=dark` is an official embed parameter). Nothing else is drawn by default except a 2 px progress line along the bottom edge.
 
 | key | action |
 |---|---|
@@ -116,7 +127,7 @@ Fallbacks, in order: the on-disk copy of the last good feed; the embedded `<scri
 
 ## Config
 
-Copy `config.example.toml` to `~/.config/slop-tv/config.toml` (all keys optional). Embed mode uses `source_url`, `fallback_url`, `shuffle`, `auto_advance` (default true), `embed_default_secs` (default 0: posts without a known duration wait for you) and `start_fullscreen` (default true) and the hidden `embed_scale_to_fit` and `embed_use_widgets` (both default false); the other keys belong to the raw mode.
+Copy `config.example.toml` to `~/.config/slop-tv/config.toml` (all keys optional). Embed mode uses `player` (`"video"` default, or `"embed"`), `source_url`, `fallback_url`, `shuffle`, `auto_advance` (default true), `embed_default_secs` (default 0: posts without a known duration wait for you) and `start_fullscreen` (default true) and the hidden `embed_scale_to_fit` and `embed_use_widgets` (both default false); the other keys belong to the raw mode.
 
 CLI: `slop-tv [--source URL|PATH] [--config FILE] [--cache-dir DIR] [--check] [--reset-notice]`. `--check` fetches and parses the feed and exits. `--reset-notice` shows the privacy notice again. `SLOPTV_BIN=/path/to/slop-tv` makes the launcher use that binary instead of building.
 
@@ -135,7 +146,13 @@ Optional: `packaging/slopTV.desktop` is a launcher entry for Walker (copy it to 
 
 ## What it talks to
 
-**Embed mode (default):**
+**Video player (default):**
+
+- `jon-slop.grok.me/videos.json` (feed), fetched by the Rust program.
+- `x.com/i/videos/tweet/<id>?autoplay=1` (X's undocumented player page) inside our iframe, plus whatever it loads (X scripts, `video.twimg.com`, possibly cookies in slopTV's private Chromium profile). One extra opaque `no-cors` request to the first clip's page serves as the reachability probe.
+- `pbs.twimg.com` poster thumbnails for the cards (lazy `<img>` after the notice is accepted), and `x.com/intent/like` / the post URL only via `xdg-open` on `f` / `o` / View on X.
+
+**Embed mode (`player = "embed"`):**
 
 - `jon-slop.grok.me/videos.json` (feed, ETag polling; plus the page itself as a last-resort fallback), fetched by the Rust program.
 - `platform.twitter.com/embed/Tweet.html?id=<id>&dnt=true&theme=dark` and whatever X's player then loads (x.com, X's scripts, `video.twimg.com`, `pbs.twimg.com`, possibly cookies in slopTV's private Chromium profile), loaded by Chromium inside the official embed. This is X's own player and X decides what it fetches.

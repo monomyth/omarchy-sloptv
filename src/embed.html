@@ -11,6 +11,13 @@
   #stage.w{overflow-y:auto;overflow-x:hidden}
   #stage.w #wt{margin:auto;width:550px;max-width:100%}
   #stage.w #f{display:none}
+  #stage.v iframe{max-width:none}
+  .hot{position:fixed;z-index:2;background:transparent}
+  #hl{left:0;top:0;bottom:0;width:22px}#hr{right:0;top:0;bottom:0;width:22px}#ht{left:0;right:0;top:0;height:14px}
+  #attr{position:fixed;left:14px;top:14px;max-width:min(60vw,420px);padding:5px 10px;border-radius:999px;background:rgba(18,18,20,.72);color:var(--dim);
+    font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:0;transition:opacity .25s;pointer-events:none;backdrop-filter:blur(6px)}
+  body.ui #attr{opacity:1;pointer-events:auto}
+  #attr b{color:var(--fg);font-weight:600}#attr a{color:var(--accent);text-decoration:none;margin-left:6px}#attr a:hover{text-decoration:underline}
   iframe{border:0;width:100%;max-width:550px;height:100%;background:#000;color-scheme:dark}
   #prog{position:fixed;left:0;bottom:0;height:2px;width:0;background:var(--accent);opacity:.7;pointer-events:none}
   .card{position:fixed;bottom:14px;width:min(270px,28vw);display:flex;gap:9px;align-items:center;padding:7px;border:0;border-radius:10px;
@@ -33,12 +40,15 @@
   #notice button:hover{border-color:var(--accent)}
 </style>
 <div id="stage"><div id="wt"></div><iframe id="f" allow="fullscreen; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe></div>
+<div class="hot" id="hl"></div><div class="hot" id="hr"></div><div class="hot" id="ht"></div>
+<div id="attr"><span>&#x1D54F;</span> <b id="ah"></b> <span id="an"></span><a id="av" href="#">View on X</a></div>
 <div id="prog"></div>
 <button class="card empty" id="cp"><img alt=""><span class="t"><b></b><span class="c"></span></span></button>
 <button class="card empty" id="cn"><img alt=""><span class="t"><b></b><span class="c"></span><em></em></span></button>
 <div id="toast"></div>
 <div id="notice"><div>
-  This plays each post in X's own embedded player, unmodified. The window loads X's scripts and media, and X may set cookies in slopTV's private browser profile (not your normal one). It asks X not to personalise (dnt=true) but X's player decides the rest.
+  <span id="n-video">This plays each post in X's own video player page (x.com/i/videos/tweet/...), an unofficial, undocumented X page that may change or be blocked. It loads X's scripts and media, and X may set cookies in slopTV's private browser profile (not your normal one). If it fails to load, slopTV falls back to X's official embed.</span>
+  <span id="n-embed" style="display:none">This plays each post in X's own embedded player, unmodified. The window loads X's scripts and media, and X may set cookies in slopTV's private browser profile (not your normal one). It asks X not to personalise (dnt=true) but X's player decides the rest.</span>
   <br><button id="ok">OK</button><button id="no">Quit</button>
 </div></div>
 <script>
@@ -92,7 +102,7 @@ function arm() { setPaused(false, true); T.start(st && !st.notice ? st.duration_
 function setPaused(on, quiet) {
   P = on;
   if (on) T.pause(Date.now()); else T.resume(Date.now());
-  if (!quiet) { if (on) { toast('paused', true); showUi(1e9); } else { $('toast').classList.remove('on'); uiUntil = Date.now() + 1500; } }
+  if (!quiet) { if (on) { toast("timer paused; X's player keeps playing", true); showUi(1e9); } else { $('toast').classList.remove('on'); uiUntil = Date.now() + 1500; } }
   tick();
 }
 function tick() {
@@ -144,13 +154,42 @@ function show(s) {
   $('notice').style.display = s.notice ? 'flex' : 'none';
   $('stage').classList.toggle('w', !!s.widgets);
   if (!s.notice && s.widgets) { if ($('wt').dataset.id !== s.id) { $('wt').dataset.id = s.id; loadTweet(s.id); } }
-  else if (!s.notice && $('f').dataset.id !== s.id) { $('f').dataset.id = s.id; $('f').src = s.embed; }
+  else if (!s.notice && $('f').dataset.id !== s.id) { $('f').dataset.id = s.id; loadFrame(s); }
+  $('stage').classList.toggle('v', s.player === 'video' && !fellBack);
+  $('n-video').style.display = s.player === 'video' ? '' : 'none'; $('n-embed').style.display = s.player === 'video' ? 'none' : '';
+  $('ah').textContent = '@' + s.creator; $('an').textContent = s.name ? '\u00b7 ' + s.name + ' \u00b7' : '\u00b7';
+  $('av').dataset.u = s.post_url; $('av').style.display = s.post_url ? '' : 'none';
   card($('cp'), s.prev); card($('cn'), s.next);
   fit();
   if (changed && !s.notice) showUi(3500);
   return changed;
 }
+// Video page -> official embed fallback, without looking at X's content. Chrome fires the iframe's load event
+// even for its own error pages, so load/timeout alone cannot see a blocked or offline page. Instead, once per
+// session, one opaque no-cors fetch of the same URL: it rejects on DNS/connection/TLS failure or timeout, and
+// we never read the response. HTTP errors and an X "unavailable" message inside a loaded page are NOT detectable.
+const LOAD_MS = 8000; let fellBack = false, probed = false, loadT = 0;
+function fallBack(s) {
+  if (fellBack) return;
+  fellBack = true; clearTimeout(loadT);
+  toast('video page unreachable, using the official embed');
+  $('stage').classList.remove('v'); $('f').src = s.embed;
+}
+function probeVideoPage(s) {
+  if (probed) return; probed = true;
+  const ac = new AbortController(), t = setTimeout(() => ac.abort(), LOAD_MS);
+  fetch(s.video, {mode: 'no-cors', cache: 'no-store', credentials: 'omit', signal: ac.signal})
+    .then(() => clearTimeout(t)).catch(() => { clearTimeout(t); fallBack(s); });
+}
+function loadFrame(s) {
+  const f = $('f');
+  if (s.player === 'video' && !fellBack) { f.src = s.video; probeVideoPage(s); }
+  else f.src = s.embed;
+}
 $('f').onload = () => arm();
+$('av').onclick = e => { e.preventDefault(); go('open'); toast('opening post on X'); };
+for (const z of ['hl', 'hr', 'ht']) $(z).addEventListener('mousemove', () => { idleT = Date.now(); showUi(2200); });
+$('hl').addEventListener('mouseenter', () => window.focus());
 function go(p) { return api(p, true).then(s => { show(s); if (['auto', 'next', 'prev', 'ack'].includes(p)) arm(); return s; }); }
 // X's own fullscreen button: the iframe element becomes document.fullscreenElement. Keys no longer reach
 // this page then, so keep the countdown running (clicking that button would otherwise pause it).

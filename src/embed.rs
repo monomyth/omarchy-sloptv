@@ -35,6 +35,13 @@ pub fn embed_url(id: &str) -> Option<String> {
     ))
 }
 
+/// X's own video-only player page (undocumented, unofficial surface). Same numeric-id guard.
+pub fn video_url(id: &str) -> Option<String> {
+    embed_url(id)?;
+    // autoplay=1 is an undocumented query parameter of that page (tested: without it the page shows a play button per clip)
+    Some(format!("https://x.com/i/videos/tweet/{id}?autoplay=1"))
+}
+
 /// X's own like-intent page for a post; the user confirms there with their own login.
 pub fn like_url(id: &str) -> Option<String> {
     embed_url(id)?; // same numeric-id guard
@@ -127,6 +134,7 @@ pub struct Ctl {
     pub default_secs: u64,
     pub scale_to_fit: bool,
     pub use_widgets: bool,
+    pub video_player: bool,
 }
 
 impl Ctl {
@@ -150,6 +158,7 @@ impl Ctl {
             default_secs: 0,
             scale_to_fit: false,
             use_widgets: false,
+            video_player: true,
         };
         c.cur = c.queue.next();
         c
@@ -195,7 +204,11 @@ impl Ctl {
             "total": self.videos.len(),
             "auto": self.auto_advance,
             "scale_fit": self.scale_to_fit,
-            "widgets": self.use_widgets,
+            "widgets": self.use_widgets && !self.video_player,
+            "player": if self.video_player { "video" } else { "embed" },
+            "video": v.and_then(|v| video_url(&v.id)).unwrap_or_default(),
+            "name": v.and_then(|v| v.name.as_deref()).unwrap_or(""),
+            "post_url": v.map(|v| v.url.as_str()).filter(|u| is_x_post_url(u)).unwrap_or(""),
             "duration_secs": v.and_then(|v| advance_secs(v.duration_ms, self.default_secs)),
             "prev": prev_card,
             "next": next_card,
@@ -464,6 +477,7 @@ pub fn run(cfg: Config, cache: Cache, reset_notice: bool) -> Result<()> {
     ctl.default_secs = cfg.embed_default_secs;
     ctl.scale_to_fit = cfg.embed_scale_to_fit;
     ctl.use_widgets = cfg.embed_use_widgets;
+    ctl.video_player = cfg.player != "embed";
     let listener = TcpListener::bind("127.0.0.1:0")?;
     listener.set_nonblocking(true)?;
     let url = format!(
@@ -795,7 +809,7 @@ mod tests {
         );
         // one iframe element for the whole session: only its src changes
         assert_eq!(PAGE.matches("<iframe").count(), 1);
-        assert!(PAGE.contains("$('f').src = s.embed"));
+        assert!(PAGE.contains("f.src = s.embed") && PAGE.contains("f.src = s.video"));
         // no browser flag that would block (or force) iframe fullscreen
         let a = browser_args(Path::new("/p"), "file:///b.html", false).join(" ");
         assert!(
@@ -838,5 +852,63 @@ mod tests {
         assert!(!PAGE.contains("document.cookie"));
         // the iframe X builds is only measured/focused, never styled by us in widgets mode
         assert!(PAGE.contains("#stage.w #f{display:none}"));
+    }
+
+    #[test]
+    fn video_player_is_default_with_guarded_url_and_attribution() {
+        assert_eq!(
+            video_url("2108935501126271427").unwrap(),
+            "https://x.com/i/videos/tweet/2108935501126271427?autoplay=1"
+        );
+        assert!(
+            video_url("1/../2").is_none() && video_url("").is_none() && video_url("1?x").is_none()
+        );
+        assert!(Config::default().player == "video");
+        let v = crate::model::parse_any(
+            br#"{"videos":[{"id":"5","creator":"a","name":"Ann","caption":"hi","url":"https://x.com/a/status/5","mp4":"https://video.twimg.com/x.mp4","duration_ms":4000}]}"#,
+        )
+        .unwrap();
+        let mut ctl = Ctl::new(v, false, 1, PathBuf::from("/nonexistent/notice"));
+        ctl.video_player = true;
+        let _ = ctl.handle("POST", "api/ack");
+        let st = ctl.state();
+        assert!(st.contains("\"player\":\"video\""), "{st}");
+        assert!(st.contains("https://x.com/i/videos/tweet/5"), "{st}");
+        assert!(
+            st.contains("\"post_url\":\"https://x.com/a/status/5\""),
+            "{st}"
+        );
+        assert!(st.contains("\"name\":\"Ann\""), "{st}");
+        ctl.video_player = false;
+        assert!(ctl.state().contains("\"player\":\"embed\""));
+    }
+
+    #[test]
+    fn page_has_attribution_fallback_and_edge_zones_without_inspecting_x() {
+        assert!(PAGE.contains("id=\"attr\"") && PAGE.contains("View on X"));
+        assert!(
+            PAGE.contains("LOAD_MS")
+                && PAGE.contains("fellBack = true")
+                && PAGE.contains("mode: 'no-cors'")
+                && PAGE.contains("credentials: 'omit'")
+        );
+        assert!(PAGE.contains("id=\"hl\"") && PAGE.contains("id=\"hr\""));
+        assert!(PAGE.contains("allow=\"fullscreen; autoplay;"));
+        assert!(!PAGE.contains("contentWindow") && !PAGE.contains("contentDocument"));
+        assert!(PAGE.contains("unofficial, undocumented X page"));
+        assert!(browser_args(Path::new("/p"), "http://x/", true)
+            .contains(&"--autoplay-policy=no-user-gesture-required".to_string()));
+    }
+
+    #[test]
+    fn page_script_is_syntactically_valid_js() {
+        let a = PAGE.find("<script>").unwrap() + 8;
+        let b = PAGE.rfind("</script>").unwrap();
+        let f = std::env::temp_dir().join(format!("slop-tv-page-{}.js", std::process::id()));
+        std::fs::write(&f, &PAGE[a..b]).unwrap();
+        if let Ok(o) = Command::new("node").arg("--check").arg(&f).output() {
+            assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+        }
+        let _ = std::fs::remove_file(&f);
     }
 }
