@@ -22,9 +22,9 @@ Read this before you install.
 - Moves to the next post when the clip's known duration (plus 1 s) has passed, never looping a single clip, and wraps to the first only after the end of the list.
 - Shows small previous/next cards and an attribution pill when you move the mouse, pause, or a new clip starts.
 
-| Cards and attribution (mouse moved) | Paused |
+| Cards and attribution (mouse moved) | Paused (cards stay visible) |
 |---|---|
-| ![cards overlay and attribution pill](docs/images/cards-and-attribution.webp) | ![timer paused](docs/images/paused.webp) |
+| ![cards overlay and attribution pill](docs/images/cards-and-attribution.webp) | ![paused, cards visible](docs/images/paused.webp) |
 
 Screenshots were taken in Chromium under Xvfb, not on Hyprland.
 
@@ -33,7 +33,7 @@ Screenshots were taken in Chromium under Xvfb, not on Hyprland.
 1. A small Rust program (the controller) loads the feed, keeps the queue (next, previous, shuffle) and serves a local page on `127.0.0.1` with a random token in the URL.
 2. It starts Chromium (`--app`, window class `slop-tv`, private profile under `~/.cache/omarchy/sloptv/chromium-profile/`, `--autoplay-policy=no-user-gesture-required`, fullscreen by default). The page holds one iframe with X's page, with `allow="autoplay; fullscreen"`.
 3. **Auto-advance is timer-based.** The iframe is cross-origin, so slopTV cannot see when a video ends and it injects nothing into X's page. Every record in the live feed carries `duration_ms` (checked: 594 of 594); the countdown is that duration rounded up plus 1 s. A post with no known duration waits for you (or uses `embed_default_secs`).
-4. **Pause is ours, not X's.** `p`/Space freezes our timer (resume continues from the remaining time). X's player keeps playing, because we cannot control or observe it. A click inside the video also pauses our timer.
+4. **Pause.** `p`/Space freezes slopTV's countdown; resume continues from the remaining time. A click inside the video also pauses the countdown.
 5. The cards, the pill and the 2 px progress line at the bottom edge are our own elements on our own page.
 
 ### Player modes
@@ -247,7 +247,7 @@ Not verified:
 - Behaviour for deleted, protected or age-restricted posts, and for X login walls.
 - Playback quality, sound and long sessions on Isengard.
 
-Known limits: pause and auto-advance are timer-only; our keys need page focus; the attribution pill is not the full set of X display elements; screenshots in this README are from Xvfb.
+Known limits: no on-screen pause label (the cards staying visible is the cue); pause stops slopTV's countdown; whether the video itself stops depends on the player. Auto-advance is timer-only; our keys need page focus; the attribution pill is not the full set of X display elements; screenshots in this README are from Xvfb.
 
 ## Development
 

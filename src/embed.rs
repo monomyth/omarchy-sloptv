@@ -918,4 +918,10 @@ mod tests {
         assert!(PAGE.contains("dblclick"));
         assert!(PAGE.contains("addEventListener('mouseenter'") && PAGE.contains("takeFocus"));
     }
+
+    #[test]
+    fn pause_has_no_on_screen_label_but_keeps_cards_visible() {
+        assert!(!PAGE.contains("toast('paused'") && !PAGE.contains("timer paused"));
+        assert!(PAGE.contains("if (on) showUi(1e9)"));
+    }
 }

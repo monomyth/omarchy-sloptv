@@ -102,7 +102,7 @@ function arm() { setPaused(false, true); T.start(st && !st.notice ? st.duration_
 function setPaused(on, quiet) {
   P = on;
   if (on) T.pause(Date.now()); else T.resume(Date.now());
-  if (!quiet) { if (on) { toast("timer paused; X's player keeps playing", true); showUi(1e9); } else { $('toast').classList.remove('on'); uiUntil = Date.now() + 1500; } }
+  if (!quiet) { if (on) showUi(1e9); else uiUntil = Date.now() + 1500; }
   tick();
 }
 function tick() {
