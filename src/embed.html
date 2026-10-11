@@ -40,7 +40,7 @@
   #notice button{margin-top:10px;margin-right:6px;background:#1c1c1e;color:var(--fg);border:1px solid #333;border-radius:8px;padding:5px 12px;cursor:pointer;font:inherit}
   #notice button:hover{border-color:var(--accent)}
 </style>
-<div id="stage"><div id="wt"></div><iframe id="f" allow="fullscreen; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe></div>
+<div id="stage"><div id="wt"></div><iframe id="f" tabindex="-1" allow="fullscreen; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe></div>
 <div class="hot" id="hl"></div><div class="hot" id="hr"></div><div class="hot" id="ht"></div>
 <div id="attr"><span>&#x1D54F;</span> <b id="ah"></b> <span id="an"></span><a id="av" href="#">View on X</a></div>
 <div id="prog"></div>
@@ -196,7 +196,7 @@ function loadFrame(s) {
   if (s.player === 'video' && !fellBack) { f.src = s.video; probeVideoPage(s); }
   else f.src = s.embed;
 }
-$('f').onload = () => arm();
+$('f').onload = () => { arm(); takeFocus(); };
 $('av').onclick = e => { e.preventDefault(); go('open'); toast('opening post on X'); };
 for (const z of ['hl', 'hr', 'ht']) $(z).addEventListener('mousemove', () => { idleT = Date.now(); showUi(2200); });
 for (const z of ['hl', 'hr', 'ht']) {
@@ -213,6 +213,8 @@ document.addEventListener('fullscreenchange', () => { inFs = document.fullscreen
 addEventListener('blur', () => setTimeout(() => { if (!inFs && document.activeElement === frame()) setTimeout(takeFocus, 800); }, 0));
 addEventListener('mousemove', () => { idleT = Date.now(); showUi(2200); });
 setInterval(tick, 250);
+// Keys are only seen by our page while it holds keyboard focus; X's cross-origin frame must never keep it.
+setInterval(() => { if (!inFs && document.activeElement === frame()) takeFocus(); }, 700);
 $('cp').onclick = () => go('prev'); $('cn').onclick = () => go('next');
 $('ok').onclick = () => go('ack'); $('no').onclick = () => go('quit');
 // Fullscreen: on Hyprland the controller toggles the window through hyprctl (works whatever has focus);
