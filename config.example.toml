@@ -3,7 +3,7 @@
 source_url   = "https://jon-slop.grok.me/videos.json"  # or a local path / file:// URL for development
 fallback_url = "https://jon-slop.grok.me"              # last resort: page with embedded <script id="data"> JSON; "" disables
 volume       = 60        # 0-130, applied at start (audio stays muted until the first keypress)
-shuffle      = true
+shuffle      = false
 fullscreen   = true
 cache_max_mb = 2048      # cap for clips + posters + tiles in ~/.cache/slop-tv
 poll_minutes = 60        # feed re-check interval (ETag, expect 304)

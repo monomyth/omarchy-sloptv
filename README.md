@@ -58,7 +58,7 @@ Optional hidden embed settings (`embed_use_widgets`, `embed_scale_to_fit`) and t
 | h / Left | previous post |
 | p / Space | pause / resume our auto-advance timer |
 | a | auto-advance on/off |
-| s | shuffle on/off (default on) |
+| s | shuffle on/off (default off) |
 | f | like: opens `https://x.com/intent/like?tweet_id=<id>` in your default browser; you confirm on X with your own login |
 | o | open the post on X in your default browser (`xdg-open`). Public posts open without an account, but X may show a login wall when signed out |
 | w or F11 | toggle fullscreen |
@@ -113,7 +113,7 @@ Copy `config.example.toml` to `~/.config/slop-tv/config.toml`. All keys are opti
 | `auto_advance` | `true` | move on by timer after each post's duration |
 | `best_quality` | `true` | video player: keep only the highest-resolution variant in X's HLS master playlist |
 | `embed_default_secs` | `0` | seconds to show a post with no known duration (0 = wait for you) |
-| `shuffle` | `true` | shuffled order |
+| `shuffle` | `false` | `true` plays in random order; off plays newest first |
 | `source_url`, `fallback_url` | jon-slop.grok.me | feed location (URL, path or `file://`) |
 
 CLI: `slop-tv [--source URL|PATH] [--config FILE] [--cache-dir DIR] [--check] [--reset-notice]`. `--check` fetches and parses the feed and exits; `--reset-notice` shows the first-run notice again. `SLOPTV_BIN=/path/to/slop-tv` makes the launcher use that binary.
@@ -211,7 +211,7 @@ Vim keys and arrows. The first keypress un-mutes (audio starts muted).
 | k / Up | volume up | focus up |
 | j / Down | volume down | focus down |
 | m | mute | mute |
-| s | shuffle on/off (default on) | same |
+| s | shuffle on/off (default off) | same |
 | n | next clip (always) | next clip |
 | f | fullscreen | fullscreen |
 | i | credit card (right third); again or Esc closes | - |

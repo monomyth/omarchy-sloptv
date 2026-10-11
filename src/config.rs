@@ -49,7 +49,7 @@ impl Default for Config {
             source_url: DEFAULT_SOURCE.into(),
             fallback_url: DEFAULT_FALLBACK.into(),
             volume: 60,
-            shuffle: true,
+            shuffle: false,
             fullscreen: true,
             auto_advance: true,
             start_fullscreen: true,
@@ -122,7 +122,7 @@ mod tests {
     fn defaults_and_partial() {
         let d = Config::default();
         assert!(
-            d.shuffle && d.auto_advance && d.start_fullscreen,
+            !d.shuffle && d.auto_advance && d.start_fullscreen,
             "embed window starts fullscreen"
         );
         assert!(
