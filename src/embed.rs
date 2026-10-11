@@ -401,6 +401,9 @@ pub fn browser_args(profile: &Path, launch_url: &str, fullscreen: bool) -> Vec<S
         "--class=slop-tv".into(),
         "--no-first-run".into(),
         "--no-default-browser-check".into(),
+        // never show "Restore pages?" after the window was killed or crashed
+        "--disable-session-crashed-bubble".into(),
+        "--hide-crash-restore-bubble".into(),
         "--autoplay-policy=no-user-gesture-required".into(),
         // the auto-advance countdown must keep its pace when the window is occluded or in the background
         "--disable-background-timer-throttling".into(),

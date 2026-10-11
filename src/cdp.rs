@@ -36,6 +36,20 @@ pub fn debug_args(port: u16) -> Vec<String> {
 
 /// Chromium arguments for the CDP app window: the normal app-window flags plus the debugging port; the first page
 /// is about:blank (privacy notice) and the controller navigates it.
+/// A window that was killed leaves `exit_type: Crashed` in the profile, which makes Chromium offer
+/// "Restore pages?" next start. Mark the last exit as clean before launching.
+fn mark_clean_exit(profile: &std::path::Path) {
+    let p = profile.join("Default/Preferences");
+    if let Ok(t) = std::fs::read_to_string(&p) {
+        let n = t
+            .replace("\"exit_type\":\"Crashed\"", "\"exit_type\":\"Normal\"")
+            .replace("\"exited_cleanly\":false", "\"exited_cleanly\":true");
+        if n != t {
+            let _ = std::fs::write(&p, n);
+        }
+    }
+}
+
 pub fn browser_args(profile: &std::path::Path, port: u16, fullscreen: bool) -> Vec<String> {
     let mut v = embed::browser_args(profile, "about:blank", fullscreen);
     v.extend(debug_args(port));
@@ -278,7 +292,7 @@ fn run_action(a: Action, quit: &mut bool) {
 }
 
 pub fn run(cfg: Config, cache: Cache, reset_notice: bool) -> Result<()> {
-    let notice = embed::notice_path();
+    let notice = embed::notice_path().with_file_name("cdp-notice-ack");
     if reset_notice {
         let _ = std::fs::remove_file(&notice);
     }
@@ -305,6 +319,7 @@ pub fn run(cfg: Config, cache: Cache, reset_notice: bool) -> Result<()> {
     })?;
     let profile = embed::profile_dir();
     std::fs::create_dir_all(&profile)?;
+    mark_clean_exit(&profile);
     let port = free_port()?;
     let mut child = std::process::Command::new(browser)
         .args(browser_args(&profile, port, cfg.start_fullscreen))
