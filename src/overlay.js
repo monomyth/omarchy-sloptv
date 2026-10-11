@@ -5,7 +5,7 @@
 (() => {
   if (window.top !== window || window.__slopTV) return;
   const h = location.hostname;
-  if (!(location.protocol === 'about:' || h === 'x.com' || h.endsWith('.x.com') || h === 'twitter.com' || h.endsWith('.twitter.com'))) return;
+  if (!(location.protocol === 'about:' || (location.protocol === 'data:' && document.title === 'slopTV') || h === 'x.com' || h.endsWith('.x.com') || h === 'twitter.com' || h.endsWith('.twitter.com'))) return;
   window.__slopTV = true;
 
   // SYNC-BEGIN (pure logic, unit-tested with node)

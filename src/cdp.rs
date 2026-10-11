@@ -50,8 +50,12 @@ fn mark_clean_exit(profile: &std::path::Path) {
     }
 }
 
+/// `--app=about:blank` makes this Chromium (with the Arch/Omarchy wrapper flags) open a plain New Tab (Google)
+/// instead of an app window, so the start page is a tiny black data: page.
+pub const BLANK_APP_URL: &str = "data:text/html,<title>slopTV</title><body style='background:%23000'>";
+
 pub fn browser_args(profile: &std::path::Path, port: u16, fullscreen: bool) -> Vec<String> {
-    let mut v = embed::browser_args(profile, "about:blank", fullscreen);
+    let mut v = embed::browser_args(profile, BLANK_APP_URL, fullscreen);
     v.extend(debug_args(port));
     // test hook, e.g. SLOPTV_BROWSER_EXTRA="--headless=new --no-sandbox" (no window)
     if let Ok(x) = std::env::var("SLOPTV_BROWSER_EXTRA") {
@@ -512,7 +516,7 @@ mod tests {
         let a = browser_args(Path::new("/p"), 4242, false);
         assert!(a.contains(&"--remote-debugging-port=4242".to_string()));
         assert!(a.contains(&"--remote-debugging-address=127.0.0.1".to_string()));
-        assert!(a.contains(&"--app=about:blank".to_string()));
+        assert!(a.contains(&format!("--app={BLANK_APP_URL}")));
         assert!(a.contains(&"--user-data-dir=/p".to_string()));
         assert!(!a.iter().any(|x| x.contains("remote-allow-origins")));
         let p = free_port().unwrap();

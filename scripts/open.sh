@@ -53,6 +53,11 @@ quit() {
   local a
   a="$(slop_addr)"
   if [[ -n "$a" ]] && hl_try "hl.dsp.window.close({ window = 'address:$a' })" closewindow "address:$a"; then :; else pkill -x slop-tv || true; fi
+  # closing the window can leave Chromium (and our controller) alive and holding the profile; the next launch
+  # would then hand off to it and show a plain New Tab. Stop both.
+  sleep 0.5
+  pkill -x slop-tv 2>/dev/null || true
+  pkill -f '[c]hromium-profile' 2>/dev/null || true
 }
 
 
