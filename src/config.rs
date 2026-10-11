@@ -18,6 +18,10 @@ pub struct Config {
     pub auto_advance: bool,
     /// Embed mode: open the Chromium app window fullscreen (`w` still toggles it).
     pub start_fullscreen: bool,
+    /// Hidden, off by default: uniformly scale X's embed up with CSS to fill the window (gray area, see README).
+    pub embed_scale_to_fit: bool,
+    /// Hidden, off by default: build the embed with X's documented widgets.js createTweet() instead of a bare iframe.
+    pub embed_use_widgets: bool,
     /// Embed mode: seconds to show a post whose duration is unknown (0 = stay until you press next).
     pub embed_default_secs: u64,
     pub cache_max_mb: u64,
@@ -44,6 +48,8 @@ impl Default for Config {
             fullscreen: true,
             auto_advance: true,
             start_fullscreen: true,
+            embed_scale_to_fit: false,
+            embed_use_widgets: false,
             embed_default_secs: 0,
             cache_max_mb: 2048,
             download_clips: false,

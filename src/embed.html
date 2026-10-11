@@ -8,6 +8,9 @@
   html,body{margin:0;height:100%;background:#000;color:var(--fg);font:13px/1.35 system-ui,sans-serif;overflow:hidden}
   body.idle{cursor:none}
   #stage{position:fixed;inset:0;display:flex;justify-content:center}
+  #stage.w{overflow-y:auto;overflow-x:hidden}
+  #stage.w #wt{margin:auto;width:550px;max-width:100%}
+  #stage.w #f{display:none}
   iframe{border:0;width:100%;max-width:550px;height:100%;background:#000;color-scheme:dark}
   #prog{position:fixed;left:0;bottom:0;height:2px;width:0;background:var(--accent);opacity:.7;pointer-events:none}
   .card{position:fixed;bottom:14px;width:min(270px,28vw);display:flex;gap:9px;align-items:center;padding:7px;border:0;border-radius:10px;
@@ -29,7 +32,7 @@
   #notice button{margin-top:10px;margin-right:6px;background:#1c1c1e;color:var(--fg);border:1px solid #333;border-radius:8px;padding:5px 12px;cursor:pointer;font:inherit}
   #notice button:hover{border-color:var(--accent)}
 </style>
-<div id="stage"><iframe id="f" allow="fullscreen; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe></div>
+<div id="stage"><div id="wt"></div><iframe id="f" allow="fullscreen; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe></div>
 <div id="prog"></div>
 <button class="card empty" id="cp"><img alt=""><span class="t"><b></b><span class="c"></span></span></button>
 <button class="card empty" id="cn"><img alt=""><span class="t"><b></b><span class="c"></span><em></em></span></button>
@@ -101,12 +104,49 @@ function tick() {
   pf.style.width = Math.min(100, T.elapsed(now) * 100 / (T.total || 1)) + '%';
   if (!P && T.due(now)) go('next');
 }
+// Optional (embed_scale_to_fit, off by default): scale OUR iframe element uniformly, like a larger window scale factor.
+// The embed itself is untouched: same page, same pixels logic, just rendered larger.
+function fit() {
+  const f = $('f');
+  if (!st || !st.scale_fit || st.widgets) { f.style.transform = f.style.width = f.style.height = f.style.maxWidth = ''; return; }
+  const s = Math.max(1, Math.min(innerWidth / 550, innerHeight / 760, 2.5));
+  f.style.maxWidth = 'none'; f.style.width = '550px'; f.style.height = (innerHeight / s) + 'px';
+  f.style.transformOrigin = 'top center'; f.style.transform = 'scale(' + s + ')';
+}
+addEventListener('resize', fit);
+// Optional (embed_use_widgets, off by default): the documented way to embed a Post. X's own widgets.js is
+// loaded into THIS page (not into X's iframe) and createTweet() builds X's official iframe with documented
+// options only. X sizes that iframe to the card, so there is no white void or inner scrollbar.
+let widgetsReady = null, wseq = 0;
+function frame() { return st && st.widgets ? document.querySelector('#wt iframe') : $('f'); }
+function loadWidgets() {
+  if (widgetsReady) return widgetsReady;
+  widgetsReady = new Promise((ok, no) => {
+    window.twttr = window.twttr || {};
+    const s = document.createElement('script');
+    s.async = true; s.src = 'https://platform.twitter.com/widgets.js'; s.charset = 'utf-8';
+    s.onload = () => (window.twttr && twttr.ready ? twttr.ready(ok) : no(new Error('widgets.js missing')));
+    s.onerror = () => no(new Error('widgets.js failed to load'));
+    document.head.appendChild(s);
+  });
+  return widgetsReady;
+}
+function loadTweet(id) {
+  const my = ++wseq, box = $('wt');
+  box.textContent = '';
+  loadWidgets().then(() => twttr.widgets.createTweet(id, box, {theme: 'dark', align: 'center', dnt: true}))
+    .then(el => { if (my === wseq) { $('stage').scrollTop = 0; arm(); } else if (el && el.parentNode) el.parentNode.removeChild(el); })
+    .catch(() => { if (my === wseq) toast('could not load X widgets.js'); });
+}
 function show(s) {
   const changed = !st || st.id !== s.id;
   st = s;
   $('notice').style.display = s.notice ? 'flex' : 'none';
-  if (!s.notice && $('f').dataset.id !== s.id) { $('f').dataset.id = s.id; $('f').src = s.embed; }
+  $('stage').classList.toggle('w', !!s.widgets);
+  if (!s.notice && s.widgets) { if ($('wt').dataset.id !== s.id) { $('wt').dataset.id = s.id; loadTweet(s.id); } }
+  else if (!s.notice && $('f').dataset.id !== s.id) { $('f').dataset.id = s.id; $('f').src = s.embed; }
   card($('cp'), s.prev); card($('cn'), s.next);
+  fit();
   if (changed && !s.notice) showUi(3500);
   return changed;
 }
@@ -115,8 +155,8 @@ function go(p) { return api(p, true).then(s => { show(s); if (['auto', 'next', '
 // X's own fullscreen button: the iframe element becomes document.fullscreenElement. Keys no longer reach
 // this page then, so keep the countdown running (clicking that button would otherwise pause it).
 let inFs = false;
-document.addEventListener('fullscreenchange', () => { inFs = document.fullscreenElement === $('f'); if (inFs) setPaused(false, true); });
-addEventListener('blur', () => setTimeout(() => { if (!inFs && document.activeElement === $('f')) setPaused(true); }, 0));
+document.addEventListener('fullscreenchange', () => { inFs = document.fullscreenElement === frame(); if (inFs) setPaused(false, true); });
+addEventListener('blur', () => setTimeout(() => { if (!inFs && document.activeElement === frame()) setPaused(true); }, 0));
 addEventListener('mousemove', () => { idleT = Date.now(); showUi(2200); });
 addEventListener('focus', () => { if (P) setPaused(false); });
 setInterval(tick, 250);

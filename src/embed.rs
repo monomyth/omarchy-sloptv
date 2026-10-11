@@ -125,6 +125,8 @@ pub struct Ctl {
     pub last_ping: Option<Instant>,
     pub auto_advance: bool,
     pub default_secs: u64,
+    pub scale_to_fit: bool,
+    pub use_widgets: bool,
 }
 
 impl Ctl {
@@ -146,6 +148,8 @@ impl Ctl {
             last_ping: None,
             auto_advance: true,
             default_secs: 0,
+            scale_to_fit: false,
+            use_widgets: false,
         };
         c.cur = c.queue.next();
         c
@@ -190,6 +194,8 @@ impl Ctl {
             "pos": self.cur.unwrap_or(0),
             "total": self.videos.len(),
             "auto": self.auto_advance,
+            "scale_fit": self.scale_to_fit,
+            "widgets": self.use_widgets,
             "duration_secs": v.and_then(|v| advance_secs(v.duration_ms, self.default_secs)),
             "prev": prev_card,
             "next": next_card,
@@ -456,6 +462,8 @@ pub fn run(cfg: Config, cache: Cache, reset_notice: bool) -> Result<()> {
     ctl.token = token();
     ctl.auto_advance = cfg.auto_advance;
     ctl.default_secs = cfg.embed_default_secs;
+    ctl.scale_to_fit = cfg.embed_scale_to_fit;
+    ctl.use_widgets = cfg.embed_use_widgets;
     let listener = TcpListener::bind("127.0.0.1:0")?;
     listener.set_nonblocking(true)?;
     let url = format!(
@@ -779,7 +787,7 @@ mod tests {
         ));
         assert!(
             PAGE.contains("fullscreenchange")
-                && PAGE.contains("document.fullscreenElement === $('f')")
+                && PAGE.contains("document.fullscreenElement === frame()")
         );
         assert!(
             PAGE.contains("!inFs && document.activeElement"),
@@ -795,6 +803,16 @@ mod tests {
         );
     }
     #[test]
+    fn scale_to_fit_is_off_by_default_and_page_only_scales_the_iframe_element() {
+        let mut c = ctl();
+        assert_eq!(state(&mut c)["scale_fit"], false);
+        c.scale_to_fit = true;
+        assert_eq!(state(&mut c)["scale_fit"], true);
+        // uniform transform on our own iframe element only; never reaches into the embed
+        assert!(PAGE.contains("transform = 'scale("));
+        assert!(!PAGE.contains("zoom") && !PAGE.contains("contentWindow"));
+    }
+    #[test]
     fn page_loads_no_x_scripts_and_no_injection() {
         assert!(
             !PAGE.contains("Tweet.html"),
@@ -802,5 +820,23 @@ mod tests {
         );
         assert!(!PAGE.contains("<script src"));
         assert!(!PAGE.contains("contentWindow") && !PAGE.contains("contentDocument"));
+    }
+
+    #[test]
+    fn widgets_mode_is_off_by_default_and_uses_only_documented_calls() {
+        let mut ctl = Ctl::new(vec![], false, 1, PathBuf::from("/nonexistent/notice"));
+        assert!(!ctl.use_widgets);
+        assert!(ctl.state().contains("\"widgets\":false"));
+        // widgets.js is loaded lazily from X's documented URL, only via createTweet with documented options
+        assert!(PAGE.contains("https://platform.twitter.com/widgets.js"));
+        assert!(PAGE.contains(
+            "twttr.widgets.createTweet(id, box, {theme: 'dark', align: 'center', dnt: true})"
+        ));
+        assert!(!PAGE.contains("<script src"));
+        assert!(!PAGE.contains("contentWindow") && !PAGE.contains("contentDocument"));
+        // never touches X's iframe or cookies
+        assert!(!PAGE.contains("document.cookie"));
+        // the iframe X builds is only measured/focused, never styled by us in widgets mode
+        assert!(PAGE.contains("#stage.w #f{display:none}"));
     }
 }

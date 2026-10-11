@@ -21,3 +21,5 @@ raw_mpv = false
 auto_advance       = true   # embed mode: move on by timer after the post's known duration (iframe events are not readable)
 embed_default_secs = 0      # embed mode: seconds to show a post with no known duration; 0 = wait for next
 start_fullscreen    = true   # embed mode: open the Chromium app window fullscreen (w toggles)
+# embed_use_widgets = false   # hidden: build the embed with X's documented widgets.js createTweet() (auto-sized card)
+# embed_scale_to_fit = false  # hidden, gray area (see README): uniformly scale X's embed up to fill the window
