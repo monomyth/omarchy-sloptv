@@ -1,5 +1,7 @@
 # slopTV
 
+> **Experimental.** slopTV is an experimental hobby plugin. It drives Chromium over its local debugging port and runs our own code inside X's video page, behaviour can break whenever X changes that page, and it is not an official Omarchy plugin. Expect rough edges and read the Terms of service section below before installing.
+
 A keyboard-driven player for the Slop Cannon feed on [Omarchy](https://omarchy.org/). One shortcut opens a window that plays the curated posts from [jon-slop.grok.me](https://jon-slop.grok.me) one after another, video only, and moves on by itself.
 
 ![slopTV playing a clip, video only](docs/images/idle.webp)
