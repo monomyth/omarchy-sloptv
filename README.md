@@ -2,9 +2,42 @@
 
 > **Experimental.** slopTV is an experimental hobby plugin. It drives Chromium over its local debugging port and runs our own code inside X's video page, behaviour can break whenever X changes that page, and it is not an official Omarchy plugin. Expect rough edges and read the Terms of service section below before installing.
 
-A keyboard-driven player for the Slop Cannon feed on [Omarchy](https://omarchy.org/). One shortcut opens a window that plays the curated posts from [jon-slop.grok.me](https://jon-slop.grok.me) one after another, video only, and moves on by itself.
+A keyboard-driven player for the Slop Cannon feed on [Omarchy](https://omarchy.org/). [Slop Cannon](https://slop.cc) is the AI video tool made by [@boneGPT](https://x.com/boneGPT); [jon-slop.grok.me](https://jon-slop.grok.me) collects the videos people make with it on X. slopTV opens one window that plays those posts one after another, video only, and moves on by itself.
 
 ![slopTV playing a clip, video only](docs/images/idle.webp)
+
+## Install
+
+```sh
+omarchy plugin add https://github.com/monomyth/omarchy-sloptv.git --enable --yes
+bash ~/.config/omarchy/plugins/io.github.monomyth.sloptv/scripts/install.sh
+```
+
+`--yes` skips Omarchy's left/center/right prompt, so the bar icon lands on the right. Move it later with `omarchy plugin enable io.github.monomyth.sloptv --section left|center|right`.
+
+The first launch shows a one-time privacy notice (see below). Press **Super+Shift+Ctrl+T** to start slopTV. `install.sh` builds the binary once with `cargo build --release` into `~/.cache/omarchy/sloptv/` (a few minutes), adds the two keybinds if the chords are free (it reports a conflict instead of overwriting), and prints a how-to-run summary. To add the binds by hand, paste `bindings.hypr.lua.example` into `~/.config/hypr/bindings.lua`.
+
+**Requirements:** Omarchy on Hyprland, Chromium (Chrome and Brave also work), `jq`, `hyprctl`, `xdg-utils`, and for building `rust` and `pkgconf`. `mpv` is optional (raw mode only; the build leaves raw mode out if libmpv is missing).
+
+```sh
+sudo pacman -S chromium rust pkgconf jq xdg-utils
+```
+
+**Uninstall:**
+
+```sh
+bash ~/.config/omarchy/plugins/io.github.monomyth.sloptv/scripts/uninstall.sh
+```
+
+This removes the keybind blocks (backup in `bindings.lua.sloptv.bak`), stops the player and its private Chromium, deletes the binary and caches and `~/.config/slop-tv/` (`--keep-config` keeps it), then runs `omarchy plugin remove io.github.monomyth.sloptv --yes`.
+
+**Reinstall / update:**
+
+```sh
+bash ~/.config/omarchy/plugins/io.github.monomyth.sloptv/scripts/uninstall.sh --keep-config
+omarchy plugin add https://github.com/monomyth/omarchy-sloptv.git --enable --yes
+bash ~/.config/omarchy/plugins/io.github.monomyth.sloptv/scripts/install.sh
+```
 
 ## Terms of service and your responsibility
 
@@ -69,39 +102,6 @@ Mouse: move to show the cards; click a card to jump; double-click a screen edge 
 
 Global chords (set up by the install script, work whatever has focus): **Super+Shift+Ctrl+T** starts, focuses or closes the player; **Super+Shift+Ctrl+F** toggles fullscreen of the player window through Hyprland. The bar icon does the same as the first chord.
 
-## Install
-
-```sh
-omarchy plugin add https://github.com/monomyth/omarchy-sloptv.git --enable --yes
-bash ~/.config/omarchy/plugins/io.github.monomyth.sloptv/scripts/install.sh
-```
-
-`--yes` skips Omarchy's left/center/right prompt, so the bar icon lands on the right. Move it later with `omarchy plugin enable io.github.monomyth.sloptv --section left|center|right`.
-
-`install.sh` builds the binary once with `cargo build --release` into `~/.cache/omarchy/sloptv/` (a few minutes), adds the two keybinds if the chords are free (it reports a conflict instead of overwriting), and prints a how-to-run summary. To add the binds by hand, paste `bindings.hypr.lua.example` into `~/.config/hypr/bindings.lua`.
-
-**Requirements:** Chromium (Chrome and Brave also work), `jq`, `hyprctl`, `xdg-utils`, and for building `rust` and `pkgconf`. `mpv` is optional (raw mode only; the build leaves raw mode out if libmpv is missing).
-
-```sh
-sudo pacman -S chromium rust pkgconf jq xdg-utils
-```
-
-**Uninstall:**
-
-```sh
-bash ~/.config/omarchy/plugins/io.github.monomyth.sloptv/scripts/uninstall.sh
-```
-
-This removes the keybind blocks (backup in `bindings.lua.sloptv.bak`), stops the player and its private Chromium, deletes the binary and caches and `~/.config/slop-tv/` (`--keep-config` keeps it), then runs `omarchy plugin remove io.github.monomyth.sloptv --yes`.
-
-**Reinstall / update:**
-
-```sh
-bash ~/.config/omarchy/plugins/io.github.monomyth.sloptv/scripts/uninstall.sh --keep-config
-omarchy plugin add https://github.com/monomyth/omarchy-sloptv.git --enable --yes
-bash ~/.config/omarchy/plugins/io.github.monomyth.sloptv/scripts/install.sh
-```
-
 ## Config
 
 Copy `config.example.toml` to `~/.config/slop-tv/config.toml`. All keys are optional.
@@ -130,7 +130,7 @@ First run shows a small notice: the default page is unofficial, loads X scripts 
 
 ## Troubleshooting
 
-**Fullscreen does nothing, or you cannot get back into it.** On Hyprland, `w`, F11, a double-click on a screen edge strip and Super+Shift+Ctrl+F all ask Hyprland itself to toggle the slop-tv window (focus it by address, then `fullscreen 0`). Outside Hyprland, `w` uses the browser's Fullscreen API. slopTV only requests fullscreen once at startup. If it still fails, look at the window state:
+**Fullscreen does nothing, or you cannot get back into it.** On Hyprland, `w`, F11, a double-click on a screen edge strip and Super+Shift+Ctrl+F all ask Hyprland itself to toggle the slop-tv window (focus it by address, then set its fullscreen state; Hyprland 0.55+ with a Lua config needs `hyprctl eval`, older versions the classic dispatchers, and slopTV tries both). Outside Hyprland, `w` uses the browser's Fullscreen API. slopTV only requests fullscreen once at startup. If it still fails, look at the window state:
 
 ```sh
 hyprctl clients -j | jq '.[] | select(.class|test("slop-tv")) | {address, class, fullscreen, fullscreenClient, floating, workspace: .workspace.name, at, size}'
@@ -246,16 +246,15 @@ Raw-mode config keys: `volume`, `fullscreen`, `cache_max_mb`, `poll_minutes`, `f
 
 ## Known limitations and not verified
 
-Tested on a Debian box with Xvfb, google-chrome-stable and xfwm4: unit tests, the controller over HTTP, the page's keys, fullscreen via the web API, F11, focus recovery after a click in X's frame, four consecutive short clips auto-advancing with and without a click in the video, autoplay and timer advance with live X pages (logged out), and the unreachable-page fallback (by blocking `x.com`). The Hyprland fullscreen path was tested only against a fake `hyprctl` that records its calls.
+Tested on a real Omarchy machine (Hyprland 0.56, Chromium, Wayland): the install and reinstall steps, the start and quit chords, fullscreen toggling with `w`, the privacy notice, and playback of the newest clip with the injected overlay, plus unit tests and a headless Chromium run of the controller. Screenshots in this README come from an earlier Xvfb test, not Hyprland.
 
 Not verified:
-- Anything on a real Hyprland/Wayland desktop: `--start-fullscreen`, the `hyprctl` calls (`focuswindow address:...`, `fullscreen 0`) on Omarchy's Hyprland version, window rules, and the install script's bind handling.
-- That X keeps serving the video page and honouring `?autoplay=1`.
+- That X keeps serving the video page and honouring `?autoplay=1`, or that its player and playlist keep their current structure (the overlay and the best-quality rewrite depend on both).
 - Whether any of this fits X's terms (see the top of this file).
 - Behaviour for deleted, protected or age-restricted posts, and for X login walls.
-- Playback quality, sound and long sessions on Isengard.
+- Long sessions, and Hyprland versions other than 0.56.
 
-Known limits: no on-screen pause label (the cards staying visible is the cue); pause stops slopTV's countdown; whether the video itself stops depends on the player. In `player = "embed"`, auto-advance is timer-only and our keys need page focus; the attribution pill is not the full set of X display elements; screenshots in this README are from Xvfb.
+Known limits: no on-screen pause label (the cards staying visible is the cue); in `player = "embed"`, auto-advance is timer-only and our keys need page focus; the attribution pill is not the full set of X display elements.
 
 ## Development
 
