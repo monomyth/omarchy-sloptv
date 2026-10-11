@@ -4,6 +4,7 @@
 #![cfg_attr(not(feature = "raw-mpv"), allow(dead_code))]
 mod args;
 mod cache;
+mod cdp;
 mod config;
 mod embed;
 mod fetch;
@@ -69,5 +70,9 @@ fn main() -> Result<()> {
             std::process::exit(2);
         }
     }
-    embed::run(cfg, cache, args.reset_notice)
+    if cfg.player == "embed" {
+        embed::run(cfg, cache, args.reset_notice)
+    } else {
+        cdp::run(cfg, cache, args.reset_notice)
+    }
 }

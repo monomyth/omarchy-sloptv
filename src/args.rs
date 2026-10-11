@@ -20,7 +20,7 @@ pub struct Args {
 
 pub const HELP: &str = "usage: slop-tv [--source URL|PATH] [--config FILE] [--cache-dir DIR] [--check] [--reset-notice]
 
-Opens the official X embedded player for each post in a Chromium app window.
+Plays each post in X's own video page in a Chromium app window, with slopTV's overlay injected through Chromium's local debugging port (config player = 'embed' keeps the old iframe wrapper).
 
   --check          fetch and parse the feed, print a summary, exit (no window)
   --reset-notice   show the one-time privacy notice again

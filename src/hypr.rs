@@ -6,6 +6,25 @@ use std::process::Command;
 
 pub const CLASS: &str = "slop-tv";
 
+/// pid of the Chromium process the CDP player launched (0 = none). With X's page as the top-level page, Wayland
+/// derives the window class from the x.com URL (no `slop-tv` in it), so the window is found by this pid instead.
+pub static BROWSER_PID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Window of a given process from `hyprctl clients -j` (address, fullscreen state).
+pub fn find_window_by_pid(clients_json: &str, pid: u32) -> Option<(String, bool)> {
+    let v: Value = serde_json::from_str(clients_json).ok()?;
+    let w = v
+        .as_array()?
+        .iter()
+        .find(|c| pid != 0 && c["pid"].as_u64() == Some(pid as u64))?;
+    let addr = w["address"].as_str()?.to_string();
+    if !addr.starts_with("0x") || !addr[2..].bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let fs = w["fullscreen"].as_i64().unwrap_or(0) > 0 || w["fullscreen"] == true;
+    Some((addr, fs))
+}
+
 /// The hyprctl binary; `SLOPTV_HYPRCTL` overrides it (tests use a recording shim).
 fn hyprctl() -> String {
     std::env::var("SLOPTV_HYPRCTL").unwrap_or_else(|_| "hyprctl".into())
@@ -21,6 +40,12 @@ pub fn available() -> bool {
 /// `slop-tv` matches; one containing our controller pid is preferred (several slopTV instances, or a
 /// leftover window, cannot steal the toggle).
 pub fn find_window(clients_json: &str, pid: Option<u32>) -> Option<(String, bool)> {
+    let bp = BROWSER_PID.load(std::sync::atomic::Ordering::SeqCst);
+    if bp != 0 {
+        if let Some(w) = find_window_by_pid(clients_json, bp) {
+            return Some(w);
+        }
+    }
     let v: Value = serde_json::from_str(clients_json).ok()?;
     let mut hits = v
         .as_array()?
@@ -139,6 +164,14 @@ pub fn ensure_fullscreen_once() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn window_found_by_browser_pid_whatever_its_class() {
+        let j = r#"[{"address":"0xaa","class":"foot","pid":5,"fullscreen":0},
+          {"address":"0xbb","class":"chrome-x.com__i_videos_tweet_1-Default","pid":42,"fullscreen":2}]"#;
+        assert_eq!(find_window_by_pid(j, 42), Some(("0xbb".into(), true)));
+        assert_eq!(find_window_by_pid(j, 7), None);
+        assert_eq!(find_window_by_pid(j, 0), None);
+    }
 
     /// Real class string reported by Hyprland on Wayland (fullscreen=2 at startup); pid 2947700.
     const REAL: &str = "chrome-__tmp_slop-tv-launch-2947700.html-Default";
@@ -196,8 +229,13 @@ mod tests {
     fn toggle_uses_lua_eval_and_sets_the_state_explicitly() {
         let on = toggle_cmds("0xab", false);
         assert_eq!(on[0][0], "eval");
-        assert_eq!(on[0][1], "hl.dispatch(hl.dsp.focus({ window = 'address:0xab' }))");
-        assert!(on[1][1].contains("fullscreen_state") && on[1][1].contains("internal = 2, client = 2"));
+        assert_eq!(
+            on[0][1],
+            "hl.dispatch(hl.dsp.focus({ window = 'address:0xab' }))"
+        );
+        assert!(
+            on[1][1].contains("fullscreen_state") && on[1][1].contains("internal = 2, client = 2")
+        );
         let off = toggle_cmds("0xab", true);
         assert!(off[1][1].contains("internal = 0, client = 0"));
         assert_eq!(legacy_cmds("0xab")[1], vec!["dispatch", "fullscreen", "0"]);

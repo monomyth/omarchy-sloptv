@@ -3,6 +3,8 @@
 //! X's official, unmodified embed in an iframe (platform.twitter.com/embed/Tweet.html?id=..&dnt=true)
 //! plus our own prev/next buttons and keys. Nothing is injected into the embed and no cookies are
 //! touched by slopTV; Chromium runs with its own dedicated profile directory.
+//! This is the `player = "embed"` mode. The default player (X's video page as the top-level page, our overlay
+//! injected through Chromium's debugging port) lives in cdp.rs.
 use crate::cache::Cache;
 use crate::config::Config;
 use crate::fetch;
@@ -93,6 +95,7 @@ pub fn notice_path() -> PathBuf {
         .join("slop-tv/embed-notice-ack")
 }
 
+#[derive(Debug)]
 pub enum Action {
     None,
     Open(String),
@@ -188,6 +191,10 @@ impl Ctl {
         })
     }
 
+    pub fn state_json(&mut self) -> String {
+        self.state()
+    }
+
     fn state(&mut self) -> String {
         let notice = self.notice_pending();
         let next = self.queue.peek_next();
@@ -208,6 +215,7 @@ impl Ctl {
             "auto": self.auto_advance,
             "scale_fit": self.scale_to_fit,
             "widgets": self.use_widgets && !self.video_player,
+            "hypr_native": self.hypr_native,
             "player": if self.video_player { "video" } else { "embed" },
             "video": v.and_then(|v| video_url(&v.id)).unwrap_or_default(),
             "name": v.and_then(|v| v.name.as_deref()).unwrap_or(""),

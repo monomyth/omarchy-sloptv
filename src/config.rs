@@ -20,6 +20,9 @@ pub struct Config {
     pub start_fullscreen: bool,
     /// "video" (default): X's video-only player page x.com/i/videos/tweet/<id>; "embed": the official embedded Post.
     pub player: String,
+    /// "video" player: ask X's HLS master playlist for its highest-resolution variant only (the page's own player
+    /// otherwise starts at 270p and adapts, and X's video page has no quality menu). Default on.
+    pub best_quality: bool,
     /// Hidden, off by default: uniformly scale X's embed up with CSS to fill the window (gray area, see README).
     pub embed_scale_to_fit: bool,
     /// Hidden, off by default: build the embed with X's documented widgets.js createTweet() instead of a bare iframe.
@@ -51,6 +54,7 @@ impl Default for Config {
             auto_advance: true,
             start_fullscreen: true,
             player: "video".into(),
+            best_quality: true,
             embed_scale_to_fit: false,
             embed_use_widgets: false,
             embed_default_secs: 0,
