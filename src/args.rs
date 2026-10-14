@@ -30,7 +30,8 @@ Plays each post in X's own video page in a Chromium app window, with slopTV's ov
 config: ~/.config/slop-tv/config.toml   cache: ~/.cache/slop-tv/
 Keys: l/h next/prev, p pause, a auto-advance, s shuffle, f like, o open on X, w/F11 fullscreen, q quit.";
 
-pub const DEFAULT_SERVE: &str = "0.0.0.0:8787";
+/// Empty = auto: bind this host's private LAN address on port 8787 (see serve::default_bind).
+pub const DEFAULT_SERVE: &str = "";
 
 pub fn parse<I: Iterator<Item = String>>(mut it: I) -> Result<Args, String> {
     let mut a = Args::default();
@@ -68,12 +69,20 @@ mod tests {
         assert!(p(&["--raw-mpv", "--download"]).unwrap().download);
         assert!(p(&["--bogus"]).is_err());
         assert_eq!(p(&["serve"]).unwrap().serve.as_deref(), Some(DEFAULT_SERVE));
-        assert_eq!(p(&["--serve", "--bind", "127.0.0.1:9"]).unwrap().serve.as_deref(), Some("127.0.0.1:9"));
+        assert_eq!(
+            p(&["--serve", "--bind", "127.0.0.1:9"])
+                .unwrap()
+                .serve
+                .as_deref(),
+            Some("127.0.0.1:9")
+        );
         assert!(p(&[]).unwrap().serve.is_none());
     }
     #[test]
     fn hidden_flags_not_in_help() {
-        assert!(!HELP.contains("raw-mpv") && !HELP.contains("--download") && !HELP.contains("serve"));
+        assert!(
+            !HELP.contains("raw-mpv") && !HELP.contains("--download") && !HELP.contains("serve")
+        );
         assert!(!HELP.to_lowercase().contains("mpv"));
     }
 }

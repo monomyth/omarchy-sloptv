@@ -9,13 +9,20 @@ use crate::config::Config;
 use crate::fetch;
 use crate::model::Video;
 use anyhow::{anyhow, Result};
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 const PAGE: &str = include_str!("web.html");
+const APP_JS: &str = include_str!("web.js");
+/// Max simultaneous connections; extra ones get a 503 and are closed.
+const MAX_CONN: usize = 32;
+/// Max bytes of request line + headers.
+const MAX_HEAD: u64 = 8 * 1024;
+const SECURITY_HEADERS: &str = "X-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nX-Frame-Options: DENY\r\nContent-Security-Policy: default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' https://pbs.twimg.com; media-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'\r\n";
 
 type Feed = Arc<RwLock<Vec<Video>>>;
 
@@ -34,8 +41,12 @@ pub fn parse_syndication(j: &serde_json::Value) -> Option<Resolved> {
             if v["content_type"] != "video/mp4" {
                 continue;
             }
-            let (b, u) = (v["bitrate"].as_u64().unwrap_or(0), v["url"].as_str().unwrap_or(""));
-            if u.starts_with("https://video.twimg.com/") && best.as_ref().map_or(true, |x| b > x.0) {
+            let (b, u) = (
+                v["bitrate"].as_u64().unwrap_or(0),
+                v["url"].as_str().unwrap_or(""),
+            );
+            if u.starts_with("https://video.twimg.com/") && best.as_ref().map_or(true, |x| b > x.0)
+            {
                 best = Some((b, u.to_string()));
             }
         }
@@ -47,13 +58,19 @@ pub fn parse_syndication(j: &serde_json::Value) -> Option<Resolved> {
 }
 
 fn resolve(res: &Resolver, v: &Video) -> Result<Resolved> {
-    if let Some(r) = res.lock().unwrap().get(&v.id) {
+    if let Some(r) = res.lock().unwrap_or_else(|e| e.into_inner()).get(&v.id) {
         return Ok(r.clone());
     }
     let r = match v.mp4.clone() {
-        Some(m) => Resolved { mp4: m, name: v.name.clone() },
-        None => {
-            let u = format!("https://cdn.syndication.twimg.com/tweet-result?id={}&token=a", v.id);
+        Some(m) if m.starts_with("https://video.twimg.com/") => Resolved {
+            mp4: m,
+            name: v.name.clone(),
+        },
+        _ => {
+            let u = format!(
+                "https://cdn.syndication.twimg.com/tweet-result?id={}&token=a",
+                v.id
+            );
             let resp = fetch::agent().get(&u).call().map_err(|e| anyhow!("{e}"))?;
             if resp.status().as_u16() != 200 {
                 return Err(anyhow!("syndication HTTP {} for {}", resp.status(), v.id));
@@ -62,7 +79,9 @@ fn resolve(res: &Resolver, v: &Video) -> Result<Resolved> {
             parse_syndication(&j).ok_or_else(|| anyhow!("no mp4 for {}", v.id))?
         }
     };
-    res.lock().unwrap().insert(v.id.clone(), r.clone());
+    res.lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(v.id.clone(), r.clone());
     Ok(r)
 }
 
@@ -71,43 +90,74 @@ pub fn run(cfg: Config, cache: Cache, bind: &str) -> Result<()> {
     if r.videos.is_empty() {
         return Err(anyhow!("no videos (source {})", cfg.source_url));
     }
-    eprintln!("slop-tv serve: {} videos (online: {})", r.videos.len(), r.online);
+    eprintln!(
+        "slop-tv serve: {} videos (online: {})",
+        r.videos.len(),
+        r.online
+    );
     let feed: Feed = Arc::new(RwLock::new(r.videos));
     {
         let feed = feed.clone();
-        let poll = cfg.poll_minutes.max(5) as u64;
+        let poll = cfg.poll_minutes.max(5);
         std::thread::spawn(move || loop {
             std::thread::sleep(Duration::from_secs(poll * 60));
             let r = fetch::load_feed(&cfg, &cache);
             if !r.videos.is_empty() {
-                *feed.write().unwrap() = r.videos;
+                *feed.write().unwrap_or_else(|e| e.into_inner()) = r.videos;
             }
         });
     }
+    let bind = if bind.is_empty() {
+        default_bind()
+    } else {
+        bind.to_string()
+    };
+    let bind = bind.as_str();
     let res: Resolver = Arc::new(Mutex::new(HashMap::new()));
     let l = TcpListener::bind(bind)?;
-    eprintln!("slop-tv serve: listening on http://{bind}/");
-    for s in l.incoming().flatten() {
-        let feed = feed.clone();
-        let res = res.clone();
+    if bind.starts_with("0.0.0.0") {
+        eprintln!("slop-tv serve: WARNING listening on ALL interfaces ({bind}); keep it behind the LAN firewall");
+    }
+    eprintln!("slop-tv serve: listening on http://{bind}/ (LAN only; unofficial, see README)");
+    let active = Arc::new(AtomicUsize::new(0));
+    for mut s in l.incoming().flatten() {
+        if active.fetch_add(1, Ordering::SeqCst) >= MAX_CONN {
+            active.fetch_sub(1, Ordering::SeqCst);
+            let _ = s.set_write_timeout(Some(Duration::from_secs(2)));
+            let _ = send(
+                &mut s,
+                "503 Service Unavailable",
+                "text/plain",
+                b"busy",
+                false,
+            );
+            continue;
+        }
+        let (feed, res, active) = (feed.clone(), res.clone(), active.clone());
         std::thread::spawn(move || {
             if let Err(e) = handle(s, &feed, &res) {
                 eprintln!("slop-tv serve: {e}");
             }
+            active.fetch_sub(1, Ordering::SeqCst);
         });
     }
     Ok(())
 }
 
-struct Req {
+pub(crate) struct Req {
     method: String,
     path: String,
     range: Option<String>,
 }
 
 fn read_req(s: &TcpStream) -> Result<Req> {
-    s.set_read_timeout(Some(Duration::from_secs(15)))?;
-    let mut r = BufReader::new(s);
+    s.set_read_timeout(Some(Duration::from_secs(10)))?;
+    s.set_write_timeout(Some(Duration::from_secs(30)))?;
+    parse_req(BufReader::new(s.take(MAX_HEAD)))
+}
+
+/// Parse a request head from a reader already capped at MAX_HEAD bytes.
+pub(crate) fn parse_req<R: BufRead>(mut r: R) -> Result<Req> {
     let mut line = String::new();
     r.read_line(&mut line)?;
     let mut it = line.split_whitespace();
@@ -116,22 +166,32 @@ fn read_req(s: &TcpStream) -> Result<Req> {
     let mut range = None;
     loop {
         let mut h = String::new();
-        if r.read_line(&mut h)? == 0 || h.trim().is_empty() {
+        if r.read_line(&mut h)? == 0 {
+            return Err(anyhow!("request head too large or truncated"));
+        }
+        if h.trim().is_empty() {
             break;
         }
         if let Some((k, v)) = h.split_once(':') {
             if k.trim().eq_ignore_ascii_case("range") {
-                range = Some(v.trim().to_string());
+                range = sanitize_range(v);
             }
         }
     }
-    Ok(Req { method, path, range })
+    if !line.ends_with('\n') {
+        return Err(anyhow!("request head too large or truncated"));
+    }
+    Ok(Req {
+        method,
+        path,
+        range,
+    })
 }
 
 fn send(s: &mut TcpStream, status: &str, ctype: &str, body: &[u8], head: bool) -> Result<()> {
     write!(
         s,
-        "HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nCache-Control: no-store\r\n{SECURITY_HEADERS}Connection: close\r\n\r\n",
         body.len()
     )?;
     if !head {
@@ -146,7 +206,7 @@ pub fn queue_json(v: &[Video]) -> String {
         .map(|x| {
             serde_json::json!({
                 "id": x.id, "creator": x.creator, "name": x.name, "title": x.title(),
-                "handle": x.handle(), "caption": x.caption, "url": x.url, "posted_at": x.posted_at,
+                "handle": x.handle(), "caption": x.caption, "url": safe_post_url(&x.url, &x.id), "posted_at": x.posted_at,
                 "duration_ms": x.duration_ms, "poster": x.poster, "src": format!("/v/{}.mp4", x.id), "meta": format!("/meta/{}.json", x.id),
             })
         })
@@ -154,12 +214,80 @@ pub fn queue_json(v: &[Video]) -> String {
     serde_json::json!({ "videos": items }).to_string()
 }
 
+/// Post ids are 1-25 ASCII digits; anything else is rejected before any lookup or fetch.
+pub fn valid_id(id: &str) -> bool {
+    (1..=25).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// Accept only a single, sane byte range (`bytes=A-B`, `bytes=A-`, `bytes=-N`); anything else is
+/// dropped so the request becomes a plain 200. Returns the normalized header value.
+pub fn sanitize_range(r: &str) -> Option<String> {
+    let spec = r.trim().strip_prefix("bytes=")?;
+    if spec.len() > 41 || spec.contains(',') {
+        return None;
+    }
+    let (a, b) = spec.split_once('-')?;
+    let num = |x: &str| -> Option<Option<u64>> {
+        if x.is_empty() {
+            Some(None)
+        } else if x.bytes().all(|c| c.is_ascii_digit()) {
+            x.parse().ok().map(Some)
+        } else {
+            None
+        }
+    };
+    match (num(a)?, num(b)?) {
+        (Some(a), Some(b)) if a <= b => Some(format!("bytes={a}-{b}")),
+        (Some(a), None) => Some(format!("bytes={a}-")),
+        (None, Some(n)) if n > 0 => Some(format!("bytes=-{n}")),
+        _ => None,
+    }
+}
+
+/// Feed post links shown to the browser must be https x.com/twitter.com URLs.
+pub fn safe_post_url(u: &str, id: &str) -> String {
+    if u.starts_with("https://x.com/") || u.starts_with("https://twitter.com/") {
+        u.to_string()
+    } else {
+        format!("https://x.com/i/status/{id}")
+    }
+}
+
+/// Default bind: this host's LAN address (the interface with the default route), port 8787.
+/// Falls back to 0.0.0.0 only when no LAN address is found, and says so.
+pub fn default_bind() -> String {
+    let ip = std::net::UdpSocket::bind("0.0.0.0:0")
+        .and_then(|s| s.connect("192.0.2.1:9").map(|_| s)) // no packet is sent
+        .and_then(|s| s.local_addr())
+        .map(|a| a.ip());
+    match ip {
+        Ok(ip) if is_lan(&ip) => format!("{ip}:8787"),
+        _ => {
+            eprintln!("slop-tv serve: no private LAN address found; binding 0.0.0.0:8787 (all interfaces)");
+            "0.0.0.0:8787".into()
+        }
+    }
+}
+
+pub fn is_lan(ip: &std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v) => v.is_private(),
+        _ => false,
+    }
+}
+
 /// Map `/v/<id>.mp4` or `/meta/<id>.json` to the feed record (feed ids only).
 pub fn lookup(v: &[Video], path: &str) -> Option<Video> {
     let id = path
         .strip_prefix("/v/")
         .and_then(|p| p.strip_suffix(".mp4"))
-        .or_else(|| path.strip_prefix("/meta/").and_then(|p| p.strip_suffix(".json")))?;
+        .or_else(|| {
+            path.strip_prefix("/meta/")
+                .and_then(|p| p.strip_suffix(".json"))
+        })?;
+    if !valid_id(id) {
+        return None;
+    }
     v.iter().find(|x| x.id == id).cloned()
 }
 
@@ -171,13 +299,26 @@ fn handle(mut s: TcpStream, feed: &Feed, res: &Resolver) -> Result<()> {
     }
     let path = req.path.split('?').next().unwrap_or("/").to_string();
     match path.as_str() {
-        "/" | "/index.html" => send(&mut s, "200 OK", "text/html; charset=utf-8", PAGE.as_bytes(), head),
+        "/" | "/index.html" => send(
+            &mut s,
+            "200 OK",
+            "text/html; charset=utf-8",
+            PAGE.as_bytes(),
+            head,
+        ),
+        "/app.js" => send(
+            &mut s,
+            "200 OK",
+            "text/javascript; charset=utf-8",
+            APP_JS.as_bytes(),
+            head,
+        ),
         "/queue.json" => {
-            let j = queue_json(&feed.read().unwrap());
+            let j = queue_json(&feed.read().unwrap_or_else(|e| e.into_inner()));
             send(&mut s, "200 OK", "application/json", j.as_bytes(), head)
         }
         p if p.starts_with("/v/") || p.starts_with("/meta/") => {
-            let Some(v) = lookup(&feed.read().unwrap(), p) else {
+            let Some(v) = lookup(&feed.read().unwrap_or_else(|e| e.into_inner()), p) else {
                 return send(&mut s, "404 Not Found", "text/plain", b"unknown clip", head);
             };
             match resolve(res, &v) {
@@ -188,7 +329,13 @@ fn handle(mut s: TcpStream, feed: &Feed, res: &Resolver) -> Result<()> {
                 Ok(r) => proxy(&mut s, &r.mp4, req.range.as_deref(), head),
                 Err(e) => {
                     eprintln!("slop-tv serve: {e}");
-                    send(&mut s, "502 Bad Gateway", "text/plain", b"cannot resolve clip", head)
+                    send(
+                        &mut s,
+                        "502 Bad Gateway",
+                        "text/plain",
+                        b"cannot resolve clip",
+                        head,
+                    )
                 }
             }
         }
@@ -198,34 +345,59 @@ fn handle(mut s: TcpStream, feed: &Feed, res: &Resolver) -> Result<()> {
 
 /// Stream the upstream mp4, passing Range through so Safari gets 206 + Content-Range.
 fn proxy(s: &mut TcpStream, url: &str, range: Option<&str>, head: bool) -> Result<()> {
+    if !url.starts_with("https://video.twimg.com/") {
+        return send(
+            s,
+            "502 Bad Gateway",
+            "text/plain",
+            b"refusing non-twimg url",
+            head,
+        );
+    }
     let mut req = fetch::agent().get(url);
     if let Some(r) = range {
         req = req.header("Range", r);
     }
     let resp = req.call().map_err(|e| anyhow!("{e}"))?;
     let st = resp.status().as_u16();
+    if !matches!(st, 200 | 206 | 416) {
+        return send(s, "502 Bad Gateway", "text/plain", b"upstream error", head);
+    }
     let h = |k: &str| {
         resp.headers()
             .get(k)
             .and_then(|v| v.to_str().ok())
             .map(|v| v.to_string())
     };
-    let reason = match st { 200 => "OK", 206 => "Partial Content", 416 => "Range Not Satisfiable", _ => "Upstream" };
+    let reason = match st {
+        200 => "OK",
+        206 => "Partial Content",
+        _ => "Range Not Satisfiable",
+    };
     let mut out = format!(
-        "HTTP/1.1 {st} {reason}\r\nContent-Type: {}\r\nAccept-Ranges: bytes\r\nCache-Control: no-store\r\nConnection: close\r\n",
-        h("content-type").unwrap_or_else(|| "video/mp4".into())
+        "HTTP/1.1 {st} {reason}\r\nContent-Type: video/mp4\r\nAccept-Ranges: bytes\r\nCache-Control: no-store\r\n{SECURITY_HEADERS}Connection: close\r\n"
     );
-    if let Some(l) = h("content-length") { out += &format!("Content-Length: {l}\r\n"); }
-    if let Some(c) = h("content-range") { out += &format!("Content-Range: {c}\r\n"); }
+    if let Some(l) = h("content-length") {
+        out += &format!("Content-Length: {l}\r\n");
+    }
+    if let Some(c) = h("content-range") {
+        out += &format!("Content-Range: {c}\r\n");
+    }
     out += "\r\n";
     s.write_all(out.as_bytes())?;
-    if head { return Ok(()); }
+    if head {
+        return Ok(());
+    }
     let mut body = resp.into_body().into_reader();
     let mut buf = [0u8; 64 * 1024];
     loop {
         let n = body.read(&mut buf)?;
-        if n == 0 { break; }
-        if s.write_all(&buf[..n]).is_err() { break; } // client seeked / closed
+        if n == 0 {
+            break;
+        }
+        if s.write_all(&buf[..n]).is_err() {
+            break;
+        } // client seeked / closed
     }
     Ok(())
 }
@@ -234,9 +406,19 @@ fn proxy(s: &mut TcpStream, url: &str, range: Option<&str>, head: bool) -> Resul
 mod tests {
     use super::*;
     fn v(id: &str, mp4: Option<&str>) -> Video {
-        Video { id: id.into(), url: format!("https://x.com/a/status/{id}"), creator: "a".into(), name: None,
-            caption: "c".into(), posted_at: String::new(), mp4: mp4.map(|s| s.into()), poster: None,
-            duration_ms: None, likes: None, views: None }
+        Video {
+            id: id.into(),
+            url: format!("https://x.com/a/status/{id}"),
+            creator: "a".into(),
+            name: None,
+            caption: "c".into(),
+            posted_at: String::new(),
+            mp4: mp4.map(|s| s.into()),
+            poster: None,
+            duration_ms: None,
+            likes: None,
+            views: None,
+        }
     }
     #[test]
     fn lookup_only_feed_ids() {
@@ -261,11 +443,101 @@ mod tests {
     }
     #[test]
     fn queue_has_attribution() {
-        let j: serde_json::Value = serde_json::from_str(&queue_json(&[v("1", Some("u")), v("2", None)])).unwrap();
+        let j: serde_json::Value =
+            serde_json::from_str(&queue_json(&[v("1", Some("u")), v("2", None)])).unwrap();
         let a = j["videos"].as_array().unwrap();
         assert_eq!(a.len(), 2);
         assert_eq!(a[0]["handle"], "@a");
         assert_eq!(a[0]["src"], "/v/1.mp4");
         assert_eq!(a[0]["url"], "https://x.com/a/status/1");
+    }
+    #[test]
+    fn ids_must_be_digits() {
+        assert!(valid_id("2110117733329502549"));
+        for bad in [
+            "",
+            "../etc/passwd",
+            "1/../2",
+            "1%2e",
+            "12a",
+            "1 2",
+            &"9".repeat(26),
+        ] {
+            assert!(!valid_id(bad), "{bad}");
+        }
+        let f = vec![v("1", None)];
+        assert!(lookup(&f, "/v/../1.mp4").is_none());
+        assert!(lookup(&f, "/v/1.mp4/../x").is_none());
+    }
+    #[test]
+    fn ranges_are_sanitized() {
+        assert_eq!(
+            sanitize_range("bytes=0-1023").as_deref(),
+            Some("bytes=0-1023")
+        );
+        assert_eq!(sanitize_range(" bytes=5- ").as_deref(), Some("bytes=5-"));
+        assert_eq!(sanitize_range("bytes=-500").as_deref(), Some("bytes=-500"));
+        for bad in [
+            "bytes=5-1",
+            "bytes=-0",
+            "bytes=-",
+            "bytes=0-1,5-9",
+            "bytes=-1-2",
+            "bytes=+1-2",
+            "bytes=99999999999999999999999-",
+            "items=0-1",
+            "bytes=0-1\r\nX: y",
+            "bytes=a-b",
+        ] {
+            assert!(sanitize_range(bad).is_none(), "{bad}");
+        }
+    }
+    #[test]
+    fn post_urls_are_https_x_only() {
+        assert_eq!(
+            safe_post_url("javascript:alert(1)", "7"),
+            "https://x.com/i/status/7"
+        );
+        assert_eq!(
+            safe_post_url("https://x.com.evil/a", "7"),
+            "https://x.com/i/status/7"
+        );
+        assert_eq!(
+            safe_post_url("https://x.com/a/status/7", "7"),
+            "https://x.com/a/status/7"
+        );
+    }
+    #[test]
+    fn request_head_is_bounded_and_parsed() {
+        let r = parse_req(std::io::Cursor::new(
+            b"GET /v/1.mp4 HTTP/1.1\r\nRange: bytes=0-9\r\n\r\n".to_vec(),
+        ))
+        .unwrap();
+        assert_eq!(
+            (r.method.as_str(), r.path.as_str(), r.range.as_deref()),
+            ("GET", "/v/1.mp4", Some("bytes=0-9"))
+        );
+        let huge = format!("GET /{} HTTP/1.1\r\n\r\n", "a".repeat(20_000));
+        assert!(parse_req(BufReader::new(
+            std::io::Cursor::new(huge.into_bytes()).take(MAX_HEAD)
+        ))
+        .is_err());
+        assert!(parse_req(std::io::Cursor::new(b"\xff\xfe garbage".to_vec())).is_err());
+        assert!(parse_req(std::io::Cursor::new(Vec::new())).is_err());
+    }
+    #[test]
+    fn lan_detection() {
+        assert!(is_lan(&"192.168.1.183".parse().unwrap()));
+        assert!(!is_lan(&"8.8.8.8".parse().unwrap()));
+        assert!(!is_lan(&"0.0.0.0".parse().unwrap()));
+    }
+    #[test]
+    fn page_has_no_inline_script_or_innerhtml() {
+        assert!(!PAGE.contains("<script>") && PAGE.contains("src=\"/app.js\""));
+        assert!(!APP_JS.contains("innerHTML") && !APP_JS.contains("document.write"));
+        assert!(
+            SECURITY_HEADERS.contains("frame-ancestors 'none'")
+                && SECURITY_HEADERS.contains("nosniff")
+        );
     }
 }

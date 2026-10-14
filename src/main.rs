@@ -11,9 +11,9 @@ mod fetch;
 mod hypr;
 mod model;
 mod queue;
-mod serve;
 #[cfg(feature = "raw-mpv")]
 mod raw;
+mod serve;
 #[cfg(feature = "raw-mpv")]
 mod ui;
 
