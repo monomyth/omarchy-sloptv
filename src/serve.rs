@@ -14,7 +14,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const PAGE: &str = include_str!("web.html");
 const APP_JS: &str = include_str!("web.js");
@@ -24,7 +24,86 @@ const MAX_CONN: usize = 32;
 const MAX_HEAD: u64 = 8 * 1024;
 const SECURITY_HEADERS: &str = "X-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nX-Frame-Options: DENY\r\nContent-Security-Policy: default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' https://pbs.twimg.com; media-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'\r\n";
 
-type Feed = Arc<RwLock<Vec<Video>>>;
+/// The feed, refreshed lazily: nothing runs while idle. A request that finds it older than
+/// `max_age` refetches it (single-flight: one fetch, concurrent callers wait and reuse it). An
+/// unknown clip id triggers at most one refetch per `miss_gap`.
+pub struct LazyFeed {
+    videos: RwLock<Arc<Vec<Video>>>,
+    fetched: Mutex<Instant>,
+    last_miss: Mutex<Option<Instant>>,
+    refresh: Mutex<()>,
+    max_age: Duration,
+    miss_gap: Duration,
+    loader: Box<dyn Fn() -> Vec<Video> + Send + Sync>,
+}
+
+fn lk<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+impl LazyFeed {
+    pub fn new(
+        initial: Vec<Video>,
+        max_age: Duration,
+        miss_gap: Duration,
+        loader: Box<dyn Fn() -> Vec<Video> + Send + Sync>,
+    ) -> LazyFeed {
+        LazyFeed {
+            videos: RwLock::new(Arc::new(initial)),
+            fetched: Mutex::new(Instant::now()),
+            last_miss: Mutex::new(None),
+            refresh: Mutex::new(()),
+            max_age,
+            miss_gap,
+            loader,
+        }
+    }
+    fn current(&self) -> Arc<Vec<Video>> {
+        self.videos
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+    fn reload(&self) {
+        let v = (self.loader)();
+        if !v.is_empty() {
+            *self.videos.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(v);
+        }
+        *lk(&self.fetched) = Instant::now(); // also on failure, so a dead source isn't hammered
+    }
+    /// The feed, refetched first if it is older than max_age.
+    pub fn fresh(&self) -> Arc<Vec<Video>> {
+        if lk(&self.fetched).elapsed() >= self.max_age {
+            let _g = lk(&self.refresh);
+            if lk(&self.fetched).elapsed() >= self.max_age {
+                self.reload();
+            }
+        }
+        self.current()
+    }
+    /// Feed record for a (validated) id; an unknown id refetches at most once per miss_gap.
+    pub fn find(&self, id: &str) -> Option<Video> {
+        let hit = |f: &[Video]| f.iter().find(|x| x.id == id).cloned();
+        if let Some(v) = hit(&self.fresh()) {
+            return Some(v);
+        }
+        let _g = lk(&self.refresh);
+        {
+            let mut lm = lk(&self.last_miss);
+            if lm.is_some_and(|t| t.elapsed() < self.miss_gap) {
+                return hit(&self.current());
+            }
+            *lm = Some(Instant::now());
+        }
+        if let Some(v) = hit(&self.current()) {
+            return Some(v); // another request refreshed meanwhile
+        }
+        self.reload();
+        hit(&self.current())
+    }
+}
+
+type Feed = Arc<LazyFeed>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Resolved {
@@ -95,18 +174,14 @@ pub fn run(cfg: Config, cache: Cache, bind: &str) -> Result<()> {
         r.videos.len(),
         r.online
     );
-    let feed: Feed = Arc::new(RwLock::new(r.videos));
-    {
-        let feed = feed.clone();
-        let poll = cfg.poll_minutes.max(5);
-        std::thread::spawn(move || loop {
-            std::thread::sleep(Duration::from_secs(poll * 60));
-            let r = fetch::load_feed(&cfg, &cache);
-            if !r.videos.is_empty() {
-                *feed.write().unwrap_or_else(|e| e.into_inner()) = r.videos;
-            }
-        });
-    }
+    let max_age = Duration::from_secs(cfg.poll_minutes.max(1) * 60);
+    let loader = Box::new(move || fetch::load_feed(&cfg, &cache).videos);
+    let feed: Feed = Arc::new(LazyFeed::new(
+        r.videos,
+        max_age,
+        Duration::from_secs(60),
+        loader,
+    ));
     let bind = if bind.is_empty() {
         default_bind()
     } else {
@@ -276,8 +351,8 @@ pub fn is_lan(ip: &std::net::IpAddr) -> bool {
     }
 }
 
-/// Map `/v/<id>.mp4` or `/meta/<id>.json` to the feed record (feed ids only).
-pub fn lookup(v: &[Video], path: &str) -> Option<Video> {
+/// The validated id from `/v/<id>.mp4` or `/meta/<id>.json`.
+pub fn clip_id(path: &str) -> Option<&str> {
     let id = path
         .strip_prefix("/v/")
         .and_then(|p| p.strip_suffix(".mp4"))
@@ -288,7 +363,7 @@ pub fn lookup(v: &[Video], path: &str) -> Option<Video> {
     if !valid_id(id) {
         return None;
     }
-    v.iter().find(|x| x.id == id).cloned()
+    Some(id)
 }
 
 fn handle(mut s: TcpStream, feed: &Feed, res: &Resolver) -> Result<()> {
@@ -314,11 +389,11 @@ fn handle(mut s: TcpStream, feed: &Feed, res: &Resolver) -> Result<()> {
             head,
         ),
         "/queue.json" => {
-            let j = queue_json(&feed.read().unwrap_or_else(|e| e.into_inner()));
+            let j = queue_json(&feed.fresh());
             send(&mut s, "200 OK", "application/json", j.as_bytes(), head)
         }
         p if p.starts_with("/v/") || p.starts_with("/meta/") => {
-            let Some(v) = lookup(&feed.read().unwrap_or_else(|e| e.into_inner()), p) else {
+            let Some(v) = clip_id(p).and_then(|id| feed.find(id)) else {
                 return send(&mut s, "404 Not Found", "text/plain", b"unknown clip", head);
             };
             match resolve(res, &v) {
@@ -405,6 +480,70 @@ fn proxy(s: &mut TcpStream, url: &str, range: Option<&str>, head: bool) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicUsize;
+    fn lookup(f: &[Video], p: &str) -> Option<Video> {
+        let id = clip_id(p)?;
+        f.iter().find(|x| x.id == id).cloned()
+    }
+    fn counting(
+        ids: &'static [&'static str],
+        n: Arc<AtomicUsize>,
+        delay_ms: u64,
+    ) -> Box<dyn Fn() -> Vec<Video> + Send + Sync> {
+        Box::new(move || {
+            n.fetch_add(1, Ordering::SeqCst);
+            std::thread::sleep(Duration::from_millis(delay_ms));
+            ids.iter().map(|i| v(i, None)).collect()
+        })
+    }
+    #[test]
+    fn lazy_feed_idle_fresh_and_single_flight() {
+        let n = Arc::new(AtomicUsize::new(0));
+        // fresh feed: no fetch at all
+        let f = LazyFeed::new(
+            vec![v("1", None)],
+            Duration::from_secs(3600),
+            Duration::from_secs(60),
+            counting(&["1", "2"], n.clone(), 0),
+        );
+        assert_eq!(f.fresh().len(), 1);
+        assert_eq!(n.load(Ordering::SeqCst), 0);
+        // stale feed: 8 concurrent requests -> exactly one fetch
+        let f2 = Arc::new(LazyFeed::new(
+            vec![v("1", None)],
+            Duration::from_secs(3600),
+            Duration::from_secs(60),
+            counting(&["1", "2"], n.clone(), 200),
+        ));
+        *lk(&f2.fetched) -= Duration::from_secs(7200);
+        let hs: Vec<_> = (0..8)
+            .map(|_| {
+                let f = f2.clone();
+                std::thread::spawn(move || f.fresh().len())
+            })
+            .collect();
+        for h in hs {
+            assert_eq!(h.join().unwrap(), 2);
+        }
+        assert_eq!(n.load(Ordering::SeqCst), 1);
+    }
+    #[test]
+    fn lazy_feed_miss_refreshes_at_most_once_per_gap() {
+        let n = Arc::new(AtomicUsize::new(0));
+        let f = LazyFeed::new(
+            vec![v("1", None)],
+            Duration::from_secs(3600),
+            Duration::from_secs(60),
+            counting(&["1", "2"], n.clone(), 0),
+        );
+        assert!(f.find("1").is_some());
+        assert_eq!(n.load(Ordering::SeqCst), 0);
+        assert!(f.find("2").is_some()); // miss -> one refetch finds it
+        assert_eq!(n.load(Ordering::SeqCst), 1);
+        assert!(f.find("999").is_none());
+        assert!(f.find("998").is_none()); // within the gap of the last miss: no more fetches
+        assert_eq!(n.load(Ordering::SeqCst), 1);
+    }
     fn v(id: &str, mp4: Option<&str>) -> Video {
         Video {
             id: id.into(),

@@ -252,6 +252,7 @@ Raw-mode config keys: `volume`, `fullscreen`, `cache_max_mb`, `poll_minutes`, `f
 - **LAN only.** It binds this machine's private LAN address on port 8787 (e.g. `http://192.168.1.183:8787/`). `--bind ADDR:PORT` overrides this; binding `0.0.0.0` prints a warning. There is no login, so anyone on your network can open it. Don't forward the port to the internet.
 - **Firewall:** Omarchy's ufw drops incoming traffic. Allow the LAN only: `sudo ufw allow from 192.168.0.0/16 to any port 8787 proto tcp comment sloptv-web` (remove it with `sudo ufw delete allow from 192.168.0.0/16 to any port 8787 proto tcp`).
 - **Terms of service:** like raw-mpv mode, it plays X's video files outside X's own player. The clip URL and the author's name come from X's public embed data (`cdn.syndication.twimg.com`, the source X's embed widget uses), and the video is streamed through this server. That is a gray area under X's terms; use it for personal viewing only, and open the post on X to like or follow.
+- **Idle means idle:** nothing polls in the background. The feed is refetched only when the page asks for the queue and the cached copy is older than `poll_minutes` (one fetch even if several devices ask at once); an unknown clip id refetches at most once a minute.
 - Hardening: only feed post ids (digits) are served, only `https://video.twimg.com/` is fetched, Range headers are validated, connections are capped and timed out, and the page uses a strict CSP and never inserts feed text as HTML.
 
 ## Known limitations and not verified
