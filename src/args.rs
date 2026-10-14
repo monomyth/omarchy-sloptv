@@ -16,6 +16,8 @@ pub struct Args {
     pub download: bool,
     /// Forget the one-time embed privacy notice acknowledgement.
     pub reset_notice: bool,
+    /// Hidden, unofficial: LAN web player bind address (`--serve [ADDR]`, `serve`).
+    pub serve: Option<String>,
 }
 
 pub const HELP: &str = "usage: slop-tv [--source URL|PATH] [--config FILE] [--cache-dir DIR] [--check] [--reset-notice]
@@ -27,6 +29,8 @@ Plays each post in X's own video page in a Chromium app window, with slopTV's ov
 
 config: ~/.config/slop-tv/config.toml   cache: ~/.cache/slop-tv/
 Keys: l/h next/prev, p pause, a auto-advance, s shuffle, f like, o open on X, w/F11 fullscreen, q quit.";
+
+pub const DEFAULT_SERVE: &str = "0.0.0.0:8787";
 
 pub fn parse<I: Iterator<Item = String>>(mut it: I) -> Result<Args, String> {
     let mut a = Args::default();
@@ -41,6 +45,8 @@ pub fn parse<I: Iterator<Item = String>>(mut it: I) -> Result<Args, String> {
             "--raw-mpv" => a.raw_mpv = true,
             "--download" => a.download = true,
             "--reset-notice" => a.reset_notice = true,
+            "--serve" | "serve" => a.serve = Some(DEFAULT_SERVE.to_string()),
+            "--bind" => a.serve = it.next(),
             "-h" | "--help" => a.help = true,
             other => return Err(format!("unknown argument {other} (try --help)")),
         }
@@ -61,10 +67,13 @@ mod tests {
         assert!(p(&["--raw-mpv"]).unwrap().raw_mpv);
         assert!(p(&["--raw-mpv", "--download"]).unwrap().download);
         assert!(p(&["--bogus"]).is_err());
+        assert_eq!(p(&["serve"]).unwrap().serve.as_deref(), Some(DEFAULT_SERVE));
+        assert_eq!(p(&["--serve", "--bind", "127.0.0.1:9"]).unwrap().serve.as_deref(), Some("127.0.0.1:9"));
+        assert!(p(&[]).unwrap().serve.is_none());
     }
     #[test]
     fn hidden_flags_not_in_help() {
-        assert!(!HELP.contains("raw-mpv") && !HELP.contains("--download"));
+        assert!(!HELP.contains("raw-mpv") && !HELP.contains("--download") && !HELP.contains("serve"));
         assert!(!HELP.to_lowercase().contains("mpv"));
     }
 }
