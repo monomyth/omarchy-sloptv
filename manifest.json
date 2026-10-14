@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "author": "Eugene Ray / Senior Engineer",
   "license": "MIT",
-  "description": "Keyboard-driven player for the Slop Cannon feed: X's official embedded player in a Chromium app window (Rust controller); built once into ~/.cache. Keybind plus a bar icon.",
+  "description": "Keyboard-driven player that plays the Slop Cannon videos collected by jon-slop.grok.me one video after another in a Chromium app window (Rust controller, experimental, unofficial); built once into ~/.cache. Keybind plus a bar icon.",
   "kinds": [
     "service",
     "bar-widget"
