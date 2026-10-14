@@ -13,6 +13,7 @@ mod model;
 mod queue;
 #[cfg(feature = "raw-mpv")]
 mod raw;
+mod serve;
 #[cfg(feature = "raw-mpv")]
 mod ui;
 
@@ -60,6 +61,9 @@ fn main() -> Result<()> {
             println!("Can't reach {}", cfg.host());
         }
         return Ok(());
+    }
+    if let Some(bind) = &args.serve {
+        return serve::run(cfg, cache, bind);
     }
     if config::raw_mode(&cfg, args.raw_mpv) {
         #[cfg(feature = "raw-mpv")]
